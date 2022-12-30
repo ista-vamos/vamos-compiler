@@ -1,0 +1,35 @@
+stream type Primes(pos : int)
+{
+    Prime(n : int, p : int);
+}
+
+stream type NumberPairs
+{
+    NumberPair(i : int, n : int, m : int);
+}
+
+event source P[2] : Primes(0) process using FORWARD to autodrop(8)
+
+buffer group Ps : Primes order by pos includes P[all]
+
+arbiter : NumberPairs
+{
+    rule set rs
+    {
+        on P[0]: | Prime(ln, lp) , P[1]: | Prime(rn, rp) where $$ count < 0 || $F.pos; < $L.pos; $$
+        $$ fdasd $$
+
+    }
+}
+
+monitor
+{
+    on NumberPair(i, n, m) where $$ true $$
+    $$
+        if(n!=m)
+        {
+          printf("Error at index %i: %i is not equal to %i\n", i, n, m);
+        }
+    $$
+}
+

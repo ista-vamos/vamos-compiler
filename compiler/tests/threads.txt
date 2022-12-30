@@ -1,0 +1,287 @@
+stream type ThreadEvent(threadid: int, nextts: uint64_t)
+{
+    read(timestamp: uint64_t, addr : uint64_t);
+    write(timestamp: uint64_t, addr : uint64_t);
+    atomicread(timestamp: uint64_t, addr : uint64_t, mode : int);
+    atomicwrite(timestamp: uint64_t, addr : uint64_t, mode : int);
+    lock(timestamp: uint64_t, addr : uint64_t);
+    unlock(timestamp: uint64_t, addr : uint64_t);
+    alloc(timestamp : uint64_t, addr : uint64_t, size : uint64_t);
+    free(timestamp: uint64_t, addr : uint64_t);
+    fork(timestamp: uint64_t, newthreadid: uint64_t) creates ThreadEvent;
+    join(timestamp: uint64_t, threadid: uint64_t);
+}
+stream processor TEProcessor(threadid : int) : ThreadEvent(threadid, 0) -> ThreadEvent(threadid, 0) extends FORWARD
+{
+    on fork(ts, ntid) creates ThreadEvent process using TEProcessor(ntid) to autodrop(@BUFSIZE) include in Threads forward;
+    my_hole
+    {
+        int n = COUNT(*);
+        uint64_t firstts = MIN(read.timestamp, write.timestamp, atomicread.timestamp, atomicwrite.timestamp, lock.timestamp, unlock.timestamp, alloc.timestamp, free.timestamp, fork.timestamp, join.timestamp);
+        uint64_t lastts = MAX(read.timestamp, write.timestamp, atomicread.timestamp, atomicwrite.timestamp, lock.timestamp, unlock.timestamp, alloc.timestamp, free.timestamp, fork.timestamp, join.timestamp);
+    }
+}
+
+buffer group Threads : ThreadEvent order by nextts
+event source Program : ThreadEvent process using TEProcessor(0) to autodrop(@BUFSIZE) include in Threads
+
+stream type GlobalEvent
+{
+    read(tid: int, timestamp: uint64_t, addr : uint64_t);
+    write(tid: int, timestamp: uint64_t, addr : uint64_t);
+    atomicread(tid: int, timestamp: uint64_t, addr : uint64_t, mode : int);
+    atomicwrite(tid: int, timestamp: uint64_t, addr : uint64_t, mode : int);
+    lock(tid: int, timestamp: uint64_t, addr : uint64_t);
+    unlock(tid: int, timestamp: uint64_t, addr : uint64_t);
+    alloc(tid: int, timestamp : uint64_t, addr : uint64_t, size : uint64_t);
+    free(tid: int, timestamp: uint64_t, addr : uint64_t);
+    fork(tid: int, timestamp: uint64_t, newthreadid: int) creates ThreadEvent;
+    join(tid: int, timestamp: uint64_t, threadid: int);
+    skipstart(tid: int, timestamp : uint64_t);
+    skipend(tid: int, timestamp : uint64_t);
+    done_(tid: int);
+}
+globals
+$$
+    #include <limits.h>
+    uint64_t nextts=0;
+    uint64_t leastts=ULLONG_MAX;
+    int seenNone=0;
+
+    #define min(a, b) __vamos_min(a, b)
+    #define max(a, b) __vamos_max(a, b)
+$$
+
+arbiter : GlobalEvent
+{
+    choose T from Threads where $$ $T.nextts; <= nextts $$
+    {
+        on T : | read(ts,addr)
+        $$
+            if(ts==nextts)
+            {
+                $yield read(T.threadid, ts, addr);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | write(ts,addr)
+        $$
+            if(ts==nextts)
+            {
+                $yield write(T.threadid, ts, addr);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | atomicread(ts,addr,mode)
+        $$
+            if(ts==nextts)
+            {
+                $yield atomicread(T.threadid, ts, addr,mode);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | atomicwrite(ts,addr,mode)
+        $$
+            if(ts==nextts)
+            {
+                $yield atomicwrite(T.threadid, ts, addr,mode);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | lock(ts,addr)
+        $$
+            if(ts==nextts)
+            {
+                $yield lock(T.threadid, ts, addr);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | unlock(ts,addr)
+        $$
+            if(ts==nextts)
+            {
+                $yield unlock(T.threadid, ts, addr);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | alloc(ts,addr,size)
+        $$
+            if(ts==nextts)
+            {
+                $yield alloc(T.threadid, ts, addr, size);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | free(ts,addr)
+        $$
+            if(ts==nextts)
+            {
+                $yield free(T.threadid, ts, addr);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | fork(ts,tid)
+        $$
+            if(ts==nextts)
+            {
+                $yield fork(T.threadid, ts, tid);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | join(ts,tid)
+        $$
+            if(ts==nextts)
+            {
+                $yield join(T.threadid, ts, tid);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=ts;
+                leastts=min(leastts, ts);
+            }
+        $$
+        on T : | my_hole(n, mints, maxts)
+        $$
+            if(mints==nextts)
+            {
+                $yield skipstart(T.threadid, mints);
+                $T.nextts;=maxts;
+                nextts++;
+                leastts=maxts;
+            }
+            else if(maxts==nextts)
+            {
+                $yield skipend(T.threadid, maxts);
+                $drop 1 from T;
+                nextts++;
+                leastts=ULLONG_MAX;
+            }
+            else
+            {
+                $T.nextts;=mints;
+                leastts=min(leastts, mints);
+            }
+        $$
+        on T : done
+        $$
+            $yield done_(T.threadid);
+            $remove T from Threads;
+        $$
+        on T : nothing
+        $$
+            seenNone=1;
+        $$
+    }
+
+	always
+	$$
+		if(!seenNone)
+		{
+			nextts=leastts;
+		}
+		seenNone=0;
+	$$
+}
+
+monitor {
+    on read(tid, timestamp, addr) where $$ true $$
+    $$
+    	printf("READ\n");
+    $$
+
+    on write(tid, timestamp, addr) where $$ true $$
+    $$
+    printf("WRITE\n");
+    $$
+
+    on atomicread(tid, timestamp, addr , mode) where $$ true $$
+    $$ printf("ATOMIC READ\n"); $$
+
+    on atomicwrite(tid, timestamp, addr , mode) where $$ true $$
+    $$ printf("ATOMIC WRITE\n"); $$
+
+    on lock(tid, timestamp, addr) where $$ true $$
+    $$
+        printf("lock(tid=%lu, ts=%lu, addr=%p\n", tid, timestamp, addr);
+    $$
+
+    on unlock(tid, timestamp, addr) where $$ true $$
+    $$
+        printf("unlock(tid=%lu, ts=%lu, addr=%p\n", tid, timestamp, addr);
+    $$
+
+    on alloc(tid, timestamp , addr, size) where $$ true $$ $$ printf("ALLOC\n"); $$
+    on free(tid, timestamp, addr ) where $$ true $$        $$ printf("FREE\n"); $$
+    on fork(tid, timestamp, newthreadid) where $$ true $$  $$ printf("FORK\n"); $$
+    on join(tid, timestamp, threadid) where $$ true $$     $$ printf("JOIN\n"); $$
+    on skipstart(tid, timestamp ) where $$ true $$         $$ printf("SKIPSTART\n"); $$
+    on skipend(tid, timestamp ) where $$ true $$           $$ printf("SKIPEND\n"); $$
+    on done_(tid) where $$ true $$                         $$ printf("DONE\n"); $$
+
+}

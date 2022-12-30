@@ -1,0 +1,75 @@
+stream type NoisyQuantumChannel(priority : int)
+{
+    QData(id: int, state: float[], n: int, total_parts: int, part: int);  
+}
+
+
+dynamic event source NoisyQuantumChannel : NoisyQuantumChannel process using FORWARD to autodrop(1024)
+
+buffer group Channels : NoisyQuantumChannel order by priority
+
+match fun ChooseFun[F,S]() = choose F,S from Channels
+
+globals
+$$
+    #include "q_error_correction.h"
+    intmap consecutive_errors_count;
+    int CONSECUTIVE_ERROR_THRESHOLD = 10000000;
+$$
+
+startup 
+$$
+init_intmap(&channels_consecutive_errors_count);
+$$
+
+cleanup
+$$
+destroy_intmap(&channels_consecutive_errors_count);
+$$
+
+arbiter : NoisyQuantumChannel
+{
+    choose F from Channels where $$ true $$
+    {
+        on F: QData(id, state, n, total_parts, part) where $$ true $$ 
+        $$
+            $F.priority; -= 1;
+        $$
+        on F: hole(n) where $$ true $$ 
+        $$
+            $F.priority; += 1;
+        $$
+    }
+
+}
+
+monitor
+{
+    on QData(id, state, n, total_parts, part) where $$ true $$
+    $$
+        int bits_flipped = detect_bits_flip(state, n);
+        if (bits_flipped > 0) {
+            printf("There are %d bits flipped on packet from %d %d/%d", phases_flipped, id, part, total_parts);
+            corrected_bits = fix_bit_flip(state, n);
+        }
+
+        int phases_flipped = detect_phases_flip(state, n);
+
+        if (phases_flipped > 0) {
+            printf("There are %d phases flipped on packet from %d %d/%d", phases_flipped, id, part, total_parts);
+            fix_phase(state, n);
+        }
+
+        if(bits_flipped == 0 && phases_flipped == 0){
+            intmap_insert(&consecutive_errors_count, id, 0);
+        } else {
+            intmap_add_one(&consecutive_errors_count, id);
+            int current_count;
+            intmap_get(&consecutive_errors_count, id, &current_count);
+            if (current_count >= CONSECUTIVE_ERROR_THRESHOLD) {
+                printf("WARNING: Channel with id %d seems to be decoherent.", id);
+            }
+        }
+
+    $$
+}

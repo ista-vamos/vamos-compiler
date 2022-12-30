@@ -1,0 +1,35 @@
+stream type Sensor(name : string)
+{
+    Measurement(time : int, value : int)
+}
+stream type Measurements
+{
+    Measurement(name : string, time : int, value : int);
+}
+
+
+
+dynamic event source Sensors(name: string) : Sensor(name) process using FORWARD
+
+buffer group AllSensors : Sensor includes Sensors[all]
+
+arbiter : Measurements
+{
+    on choose S from AllSensors by round robin: Measurement(t,v) |
+    $$
+        $yield Measurement($S.name, t, v);
+    $$
+    on choose S from AllSensors by round robin, S : hole(n) |
+    $$ $$
+}
+
+monitor
+{
+    on Measurement(n,t,v)
+    $$
+        if(v>100 || v < 0)
+        {
+            printf("Invalid measurement on sensor %s at %i: measured %i\n", n, t, v);
+        }
+    $$
+}

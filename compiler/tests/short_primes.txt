@@ -1,0 +1,66 @@
+stream type Primes
+{
+    Prime(n : int, p : int);
+}
+
+stream type NumberPairs
+{
+    NumberPair(i : int, n : int, m : int);
+}
+
+event source Left : Primes -> autodrop(8) Primes
+{
+    on Prime(n, p) forward Prime($$ n $$, $$ p $$);
+}
+
+event source Right : Primes -> autodrop(8) Primes
+{
+    on Prime(n, p) forward Prime($$ n $$,$$ p $$);
+}
+
+
+arbiter : NumberPairs
+{
+    rule set rs
+    {
+        on Left : | Prime(ln, lp) , Right : | Prime(rn, rp) where $$ true $$
+		$$
+		   if(ln == rn)
+		   {
+		       $yield NumberPair(ln, lp, rp);
+			   $drop 1 from Left;
+			   $drop 1 from Right;
+		   }
+		   else if(ln < rn)
+		   {
+		       $drop 1 from Left;
+		   }
+		   else
+		   {
+		       $drop 1 from Right;
+		   }
+		$$
+		on Left : hole(n) | where $$ true $$
+		$$
+		$$
+		on Right : hole(n) | where $$ true $$
+		$$
+		$$
+		on Left : Prime(n,p) | , Right : done where $$ true $$
+        $$
+		$$
+		on Right : Prime(n,p) | , Left : done where $$ true $$
+        $$
+		$$
+    }
+}
+
+monitor
+{
+    on NumberPair(i, n, m) where $$ true $$
+    $$
+        if(n!=m){
+          printf("Error at index %i: %i is not equal to %i\n", i, n, m);
+        }
+    $$
+}

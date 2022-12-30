@@ -1,0 +1,149 @@
+stream type Primes(pos : int)
+{
+    Prime(n : int, p : int);  
+}
+
+stream type NumberPairs
+{
+    NumberPair(i : int, n : int, m : int);
+}
+
+event source P[2] : Primes(0) process using FORWARD to autodrop(4)
+
+buffer group Ps : Primes order by pos includes P[all]
+
+globals
+$$
+    #include "./compiler/cfiles/intmap.h"
+    intmap buf;
+    int count = 0;
+
+    int left_drops = 0;
+    int right_drops = 0;
+    
+    int left_processed = 0;
+    int right_processed = 0;
+
+    int compared = 0;
+    
+    int left_holes = 0;
+    int right_holes = 0;
+
+    bool is_compared = false;
+    int process(int n, int p, int pos, int opos)
+    {
+        is_compared = false;
+        if(pos < opos)
+        {
+            int oval=0;
+            if(intmap_get(&buf, n, &oval))
+            {
+                compared++;
+                is_compared = true;
+                $yield NumberPair(n, oval, p);
+            }
+            count -= intmap_remove_upto(&buf, n);
+        }
+        else
+        {
+            if(count<10)
+            {
+                is_compared = true;
+                intmap_insert(&buf, n, p);
+                count++;
+            }
+        }
+        return n+1;
+    }
+$$
+
+startup 
+$$
+init_intmap(&buf);
+$$
+
+cleanup
+$$
+destroy_intmap(&buf);
+int left_skipped = left_processed - compared - left_drops;
+int right_skipped = left_processed - compared - right_drops;
+printf("LEFT: processed %d events (%d compared, %d dropped (in %d holes), %d skipped) \n", left_processed, compared, left_drops, left_holes, left_skipped);
+
+printf("RIGHT: processed %d events (%d compared, %d dropped (in %d holes), %d skipped) \n", right_processed, compared, right_drops, right_holes, right_skipped);
+$$
+
+match fun Prio[F,S]() = choose F,S from Ps
+
+arbiter : NumberPairs
+{
+    rule set rs
+    {
+        on P[0]: | Prime(ln, lp) , P[1]: | Prime(rn, rp) where $$ true $$
+        $$
+
+            if(ln == rn)
+            {
+                left_processed += 1;
+                right_processed += 1;
+                compared++;
+                $yield NumberPair(ln, lp, rp);
+                $drop 1 from P[0];
+                $drop 1 from P[1];
+                intmap_clear(&buf);
+                $P[0].pos; = ln + 1;
+                $P[1].pos; = rn + 1;
+            }
+            else if($P[0].pos;<$P[1].pos;)
+            {
+                left_processed += 1;
+                $P[0].pos; = process(ln, lp, $P[0].pos;, $P[1].pos;);
+                $drop 1 from P[0];
+            }
+            else
+            {
+                right_processed += 1;
+                $P[1].pos; = process(rn, rp, $P[1].pos;, $P[0].pos;);
+                $drop 1 from P[1];
+            }
+        $$
+        on Prio[F,S](), F : hole(n) | where $$ count < 10 || $F.pos; <= $S.pos; $$
+        $$
+            if($F.pos; < $S.pos;)
+            {
+                
+                count -= intmap_remove_upto(&buf, $F.pos;+n);
+            }
+            $F.pos; += n;
+
+            if (F == EV_SOURCE_P_0) {
+                left_processed += n;
+                left_holes += 1;
+                left_drops += n;
+            } else {
+                right_processed += n;
+                right_holes += 1;
+                right_drops += n;
+            }
+        $$
+        on Prio[F,S](), F: Prime(n, p) | where $$ count < 10 || $F.pos; <= $S.pos; $$
+        $$
+            $F.pos; = process(n, p, $F.pos;, $S.pos;);  
+            if (F == EV_SOURCE_P_0) {
+                left_processed ++;
+            } else {
+                right_processed ++;
+            }        
+        $$
+    }
+}
+
+monitor
+{
+    on NumberPair(i, n, m) where $$ true $$
+    $$
+        if(n!=m)
+        {
+          printf("ERROR at index %i: %i is not equal to %i\n", i, n, m);
+        }
+    $$
+}
