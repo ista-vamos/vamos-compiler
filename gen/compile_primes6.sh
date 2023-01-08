@@ -17,23 +17,26 @@ CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I${GENDIR} -I$SHAMONDIR\
 if grep -q 'CMAKE_BUILD_TYPE.*=Debug' $GENDIR/../CMakeCache.txt; then
 	CFLAGS="-g -O0"
 else
+	CC=clang
 	CFLAGS="-g3 -O3 -flto  -fno-fat-lto-objects -fPIC -std=c11"
         CPPFLAGS="$CPPFLAGS -DNDEBUG"
 fi
 
 LDFLAGS="-lpthread -ldl"
 LIBRARIES="$SHAMONDIR/core/libshamon-arbiter.a\
-           $SHAMONDIR/core/libshamon-monitor.a\
-           $SHAMONDIR/core/libshamon-utils.a\
+           $SHAMONDIR/core/libshamon-monitor-buffer.a\
            $SHAMONDIR/core/libshamon-stream.a\
-           $SHAMONDIR/core/libshamon-parallel-queue.a\
-           $SHAMONDIR/tessla/bankmon/target/debug/libmonitor.a\
-           $SHAMONDIR/core/list.c\
-           $SHAMONDIR/core/signatures.c\
            $SHAMONDIR/shmbuf/libshamon-shmbuf.a\
+           $SHAMONDIR/core/libshamon-parallel-queue.a\
+           $SHAMONDIR/core/libshamon-ringbuf.a\
+           $SHAMONDIR/core/libshamon-event.a\
+           $SHAMONDIR/core/libshamon-source.a\
+           $SHAMONDIR/core/libshamon-signature.a\
+           $SHAMONDIR/core/libshamon-list.a\
            $SHAMONDIR/streams/libshamon-streams.a\
-	   $SHAMONDIR/compiler/cfiles/compiler_utils.c\
+           $SHAMONDIR/core/libshamon-utils.a\
+	   $SHAMONDIR/compiler/cfiles/compiler_utils.o\
 	   $SHAMONDIR/compiler/cfiles/intmap.o"
 
 test -z $CC && CC=cc
-${CC} $CFLAGS $CPPFLAGS -o $CURDIR/monitor $MONITORSRC -lstdc++ $@ $LIBRARIES $LDFLAGS
+$CC $CFLAGS $CPPFLAGS -o $CURDIR/monitor $MONITORSRC $@ $LIBRARIES -lstdc++ $LDFLAGS
