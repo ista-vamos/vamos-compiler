@@ -12,6 +12,8 @@ typedef struct _dll_node {
 typedef struct _buffer_group {
     dll_node *head; 
     dll_node *tail;
+    dll_node *waiting_list_head;
+    dll_node *waiting_list_tail; 
     int size;
 } buffer_group;
 
@@ -19,7 +21,11 @@ void init_buffer_group(buffer_group *bg);
 
 void destroy_buffer_group(buffer_group *bg);
 
-void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2));
+void bg_merge_waiting_list(buffer_group *bg, bool (*order_exp)(void *args1, void *args2));
+
+void bg_add_to_waiting_list(buffer_group *bg, shm_stream *stream, void* buffer, void *args);
+
+void bg_insert(buffer_group *bg, dll_node *new_node, bool (*order_exp)(void *args1, void *args2));
 
 dll_node *find_stream(buffer_group *bg, shm_stream *stream);
 
