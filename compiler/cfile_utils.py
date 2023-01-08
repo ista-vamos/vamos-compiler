@@ -374,21 +374,21 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
             min_size_uninterrupt = connection_kind[3]
 
         stream_type = stream_type_from_ev_source(event_source)
-        in_event = f"STREAM_{stream_type}_in"
+        out_event = f"STREAM_{stream_type}_out"
         if copies:
             for i in range(copies):
                 name = f"{stream_name}_{i}"
                 answer += f"\t// connect to event source {name}\n"
                 answer += f"""
-                shm_stream_hole_handling hh = {{
-                  .hole_event_size = sizeof({in_event}),
-                  .init = &init_hole_{processor_name},
-                  .update = &update_hole_{processor_name}
+                shm_stream_hole_handling hh_{name} = {{
+                  .hole_event_size = sizeof({out_event}),
+                  .init = &init_hole_{hole_name},
+                  .update = &update_hole_{hole_name}
                 }};\n
                 """
-                answer += f"\tEV_SOURCE_{name} = shm_stream_create_from_argv(\"{name}\", argc, argv, &hh);\n"
+                answer += f"\tEV_SOURCE_{name} = shm_stream_create_from_argv(\"{name}\", argc, argv, &hh_{name});\n"
                 answer += f"\tif (!EV_SOURCE_{name}) {{\n"
-                ansser += f"\t\tfprintf(stderr, \"Failed creating stream {name}\\n\");"
+                answer += f"\t\tfprintf(stderr, \"Failed creating stream {name}\\n\");"
                 answer +=  "\tabort();}\n"
                 answer += f"\tBUFFER_{stream_name}{i} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
                 if min_size_uninterrupt is not None:
@@ -405,13 +405,13 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
             name = f"{stream_name}"
             answer += f"\t// connect to event source {name}\n"
             answer += f"""
-                shm_stream_hole_handling hh = {{
-                  .hole_event_size = sizeof({in_event}),
+                shm_stream_hole_handling hh_{name} = {{
+                  .hole_event_size = sizeof({out_event}),
                   .init = &init_hole_{hole_name},
                   .update = &update_hole_{hole_name}
                 }};\n
                 """
-            answer += f"\tEV_SOURCE_{name} = shm_stream_create_from_argv(\"{name}\", argc, argv, &hh);\n"
+            answer += f"\tEV_SOURCE_{name} = shm_stream_create_from_argv(\"{name}\", argc, argv, &hh_{name});\n"
             answer += f"\tBUFFER_{stream_name} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
             if min_size_uninterrupt is not None:
                 answer += f"\tshm_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
@@ -629,10 +629,6 @@ case {mapping_in[event_name]["enum"]}:
             event_name, event_args = case['event'], case['event_args']
             buffer_group = case['buff_group']
             stream_processor_name = case['process_using']
-            if  stream_processor_name == 'forward' or TypeChecker.stream_processors_data[stream_processor_name]["special_hole"] is None:
-                hole_size = "sizeof(EVENT_hole)"
-            else:
-                hole_size = f"sizeof(EVENT_{TypeChecker.stream_processors_data[stream_processor_name]['hole_name']}_hole)"
             if buffer_kind != 'autodrop':
                 raise Exception("implement of non-autodrop buffer missing!")
             buff_size = case['connection_kind']['size']
@@ -661,10 +657,10 @@ mtx_unlock(&LOCK_{buffer_group});
                 stream_threshold_code = f"\tshm_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n"
 
             hole_name = TypeChecker.stream_processors_data[stream_processor_name]['hole_name']
-            in_event = f"STREAM_{stream_type}_in"
+            out_event = f"STREAM_{stream_type}_out"
             creates_code = f'''
             shm_stream_hole_handling hole_handling = {{
-              .hole_event_size = sizeof({in_event}),
+              .hole_event_size = sizeof({out_event}),
               .init = &init_hole_{hole_name},
               .update = &update_hole_{hole_name}
             }};
@@ -791,6 +787,18 @@ def are_buffers_done():
         else:
             code += f"\tif (!shm_arbiter_buffer_is_done(BUFFER_{event_source})) return 0;\n"
 
+    for (buffer_group, data) in TypeChecker.buffer_group_data.items():
+        code += f'''
+    mtx_lock(&LOCK_{buffer_group});
+    int BG_{buffer_group}_size = BG_{buffer_group}.size;
+    update_size_chosen_streams(BG_{buffer_group}_size);
+    is_selection_successful = bg_get_first_n(&BG_{buffer_group}, 1, &chosen_streams);
+    mtx_unlock(&LOCK_{buffer_group});
+    for (int i = 0; i < BG_{buffer_group}_size; i++) {"{"}
+        if (!shm_arbiter_buffer_is_done(chosen_streams[i]->buffer)) return 0;
+    {"}"}
+'''
+
     return f'''
 bool are_buffers_done() {"{"}
 {code}
@@ -807,14 +815,15 @@ def arbiter_code(tree, components):
 
     rule_set_invocations = ""
     for name in rule_set_names:
-        rule_set_invocations += f"\t\tif (current_rule_set == SWITCH_TO_RULE_SET_{name}) {'{'} \n" \
-                                f"\t\t\tRULE_SET_{name}();\n" \
+        rule_set_invocations += f"\t\tif (!ARB_CHANGE_ && current_rule_set == SWITCH_TO_RULE_SET_{name}) {'{'} \n" \
+                                f"\t\t\tARB_CHANGE_ = RULE_SET_{name}();\n" \
                                 f"\t\t{'}'}\n"
 
     if len(rule_set_names) > 0:
         return f'''int arbiter() {"{"}
 
         while (!are_streams_done()) {"{"}
+            ARB_CHANGE_ = false;
     {rule_set_invocations}
         {"}"}
         shm_monitor_set_finished(monitor_buffer);
@@ -852,7 +861,7 @@ def rule_set_streams_condition(tree, mapping, stream_types, inner_code="", is_sc
         stream_name = event_src_ref[1]
         out_type = stream_types[stream_name][1]
         if event_src_ref[2] is not None:
-            stream_name += f"_{str(event_src_ref[2])}"
+            stream_name += f"{str(event_src_ref[2])}"
         if context is not None:
             if stream_name in context.keys():
                 stream_name = context[stream_name]
@@ -961,7 +970,7 @@ def construct_arb_rule_outevent(mapping, output_ev_source, output_event, raw_arg
 def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
     if tree[0] == "switch":
         switch_rule_name = tree[PPARB_RULE_STMT_SWITCH_ARB_RULE]
-        TypeChecker.assert_symbol_type(switch_rule_name, ARBITER_RULE_SET)
+        # TypeChecker.assert_symbol_type(switch_rule_name, ARBITER_RULE_SET)
         return f"current_rule_set = SWITCH_TO_RULE_SET_{switch_rule_name};\n"
     if tree[0] == "yield":
         return f'''
@@ -1138,12 +1147,12 @@ def get_choose_statement(binded_streams, buffer_name, choose_order):
         else:
             if choose_order[2]:
                 choose_count = choose_order[2]
-        choose_statement += f"is_selection_successful = bg_get_first_n(&BG_{buffer_name}, {at_least}, {choose_count}, &chosen_streams);\n"
+        choose_statement += f"is_selection_successful = bg_get_first_n(&BG_{buffer_name}, {at_least}, &chosen_streams);\n"
     else:
         assert (choose_order[1] == "last")
         if choose_order[2]:
             choose_count = choose_order[2]
-        choose_statement = f"is_selection_successful = bg_get_last_n(&BG_{buffer_name}, {at_least}, {choose_count}, &chosen_streams);\n"
+        choose_statement = f"is_selection_successful = bg_get_last_n(&BG_{buffer_name}, {at_least}, &chosen_streams);\n"
     return choose_statement, choose_count
 
 def get_buff_groups_combinations_code(buffer_name, binded_streams, choose_order, stream_types, current_tail, inner_code, tree=None, choose_condition=None):
@@ -1183,8 +1192,9 @@ def get_buff_groups_combinations_code(buffer_name, binded_streams, choose_order,
                 answer += f"(void**)&e1_{name}, &i1_{name}, (void**)&e2_{name}, &i2_{name});\n"
                 
 
-            answer += f'''
-if({choose_code}) {"{"}
+        answer += f'''
+if({choose_code} ) {"{"}
+    current_matches_+=1;
     {inner_code}
 {"}"}
             '''
@@ -1198,7 +1208,7 @@ if({choose_code}) {"{"}
             unique_index_code += f"if(index_{name} == index_{prev_name}){'{'} index_{name}++; continue;{'}'}\n"
         if index > 0:
             loop_code += f"index_{name} = 0;\n"
-        loop_code += f"while(index_{name} < {choose_count} && index_{name} < BG_{buffer_name}_size){'{'}\n"
+        loop_code += f"while(index_{name} < BG_{buffer_name}_size && current_matches_ < expected_matches_){'{'}\n"
         loop_code += f"{unique_index_code}\n"
     loop_code += get_local_inner_code()
     # close loops parenthesis
@@ -1210,9 +1220,12 @@ if({choose_code}) {"{"}
     mtx_lock(&LOCK_{buffer_name});
     bg_update(&BG_{buffer_name}, {buffer_name}_ORDER_EXP);
     int BG_{buffer_name}_size = BG_{buffer_name}.size;
+    update_size_chosen_streams(BG_{buffer_name}_size);
     {choose_statement}
     mtx_unlock(&LOCK_{buffer_name});
     if (is_selection_successful) {"{"}
+        int expected_matches_ = {choose_count};
+        int current_matches_ = 0;
         {declare_indices()}
         {loop_code}
     {"}"}
@@ -1290,6 +1303,32 @@ def buffer_peeks(tree, existing_buffers):
 
     return answer
 
+def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
+    buffer_group_type = TypeChecker.buffer_group_data[buffer_group_name]['in_stream']
+    assert(buffer_group_type in buffer_to_src_idx.keys())
+
+    print_args_code = ""
+    
+    for arg_data in TypeChecker.stream_types_data[buffer_group_type]['arg_types']:
+        iterpol_code = ""
+        if arg_data['type'] in ['int', 'uint16_t', 'int16_t'] :
+            interpol_code = "%d"
+        elif arg_data['type'] in ['uint64_t']:
+            interpol_code = "%lu"
+        else:
+            raise Exception(f"implement interpolation code {arg_data['type']}")
+        print_args_code+= f'\tprintf("{arg_data["name"]} = {interpol_code}\\n", ((STREAM_{buffer_group_type}_ARGS *) current->args)->{arg_data["name"]});\n' 
+    
+    return f'''
+    printf(\"{buffer_group_name}[%d].ARGS{"{"}\", i);
+{print_args_code}
+    printf(\"{"}"}\\n\");
+    char* e1_BG; size_t i1_BG; char* e2_BG; size_t i2_BG;
+    int COUNT_BG_TEMP_ = shm_arbiter_buffer_peek(current->buffer, 5, (void**)&e1_BG, &i1_BG, (void**)&e2_BG, &i2_BG);
+    printf(\"{buffer_group_name}[%d].buffer{"{"}\\n\", i);
+    print_buffer_prefix(current->buffer, {buffer_to_src_idx[buffer_group_type]}, i1_BG + i2_BG, COUNT_BG_TEMP_, e1_BG, i1_BG, e2_BG, i2_BG);
+    printf(\"{"}"}\\n\");
+'''
 
 def check_progress(rule_set_name, tree, existing_buffers):
     buffers_to_peek = dict()  # maps buffer_name to the number of elements we want to retrieve from the buffer
@@ -1297,34 +1336,36 @@ def check_progress(rule_set_name, tree, existing_buffers):
 
     answer = "_Bool ok = 1;\n"
     n = 0
-    for (buffer_name, desired_count) in buffers_to_peek.items():
-        answer += f"if (count_{buffer_name} >= {desired_count}) {{"
-        n += 1
+    if buffers_to_peek:
+        for (buffer_name, desired_count) in buffers_to_peek.items():
+            answer += f"if (count_{buffer_name} >= {desired_count}) {'{'}"
+            n += 1
         answer += "\tok = 0;\n"
         answer += "}" * n
+
+    answer += "\n"
 
     answer += "if (ok == 0) {\n"
 
     buffer_to_src_idx = { bn : -1 for bn in existing_buffers}
-    for (event_source_index, (event_source, data) )in enumerate(TypeChecker.event_sources_data.items()):
-        if data["copies"] is None:
-            if event_source in existing_buffers:
-                buffer_to_src_idx[event_source] = event_source_index
-            else:
-                buffer_to_src_idx[event_source] = -1
-        else:
-            for i in range(data["copies"]):
-                event_source_name = f"{event_source}{i}"
-                if event_source_name in existing_buffers:
-                    buffer_to_src_idx[event_source_name ] = event_source_index
-                else:
-                    buffer_to_src_idx[event_source_name ] = -1
+    for (event_source_index, stream_type )in enumerate(TypeChecker.stream_types_data.keys()):
+        buffer_to_src_idx[stream_type] = event_source_index
 
-    for (buffer_name, desired_count) in buffers_to_peek.items():
-        src_idx = buffer_to_src_idx[buffer_name]
-        answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-        answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
-        answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
+    for (ev_source, data) in TypeChecker.event_sources_data.items():
+        src_idx = buffer_to_src_idx[data['output_stream_type']]
+        if data['copies']:
+            for i in range(data['copies']):
+                buffer_name = ev_source + str(i)
+                if buffer_name in buffers_to_peek.keys():
+                    answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
+        else:
+            buffer_name = ev_source
+            if buffer_name in buffers_to_peek.keys():
+                answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
     answer += f"fprintf(stderr, \"No rule in rule set '{rule_set_name}' matched even though there was enough events, CYCLING WITH NO PROGRESS (exiting)!\\n\");"
     answer += "__work_done=1; abort();"
     answer += "}\n"
@@ -1332,11 +1373,28 @@ def check_progress(rule_set_name, tree, existing_buffers):
     answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > 8000000) {{\
         \tRULE_SET_{rule_set_name}_nomatch_cnt = 0;"
     answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles long time without progress\\033[0m\\n\");"
-    for (buffer_name, desired_count) in buffers_to_peek.items():
-        src_idx = buffer_to_src_idx[buffer_name]
-        answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-        answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
-        answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
+    for (ev_source, data) in TypeChecker.event_sources_data.items():
+
+        src_idx = buffer_to_src_idx[data['output_stream_type']]
+        if data['copies']:
+            for i in range(data['copies']):
+                buffer_name = ev_source + str(i)
+                if buffer_name in buffers_to_peek.keys():
+                    answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
+        else:
+            buffer_name = ev_source
+            if buffer_name in buffers_to_peek.keys():
+                answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
+    for (buffer_group, data) in TypeChecker.buffer_group_data.items():
+        answer += f'printf(\"***** BUFFER GROUPS *****\\n\");\n'
+        answer += f'printf(\"***** {buffer_group} *****\\n\");\n'
+        answer += f"dll_node *current = BG_{buffer_group}.head;\n"
+        answer += f"{'{'}int i = 0; \n while (current){'{'} {print_dll_node_code(buffer_group, buffer_to_src_idx)} current = current->next;\n i+=1;\n{'}'}\n{'}'}"
+
     answer += "fprintf(stderr, \"Seems all rules are waiting for some events that are not coming\\n\");"
     answer += "}\n"
 
@@ -1485,8 +1543,7 @@ def get_event_name(stream_types, mapping):
         return answer
 
     code = ""
-    for (event_source_index, (event_source, data) )in enumerate(TypeChecker.event_sources_data.items()):
-        output_type = stream_types[event_source][0]
+    for (event_source_index, output_type )in enumerate(TypeChecker.stream_types_data.keys()):
         code += f'''
     if(ev_src_index == {event_source_index}) {"{"}
         {local_build_if_from_events(mapping[output_type])}
@@ -1711,19 +1768,27 @@ def outside_main_code(components, streams_to_events_map, stream_types, ast, arbi
 
 struct _EVENT_hole
 {"{"}
-  shm_event head;
   uint64_t n;
 {"}"};
 typedef struct _EVENT_hole EVENT_hole;
-static void init_hole(shm_event *hev) {"{"}
-    EVENT_hole *h = (EVENT_hole *) hev;
-    h->head.kind = shm_get_hole_kind();
-    h->n = 0;
 
+struct _EVENT_hole_wrapper {"{"}
+    shm_event head;
+    union {"{"}
+        EVENT_hole hole;
+    {"}"}cases;
+{"}"};
+
+static void init_hole_hole(shm_event *hev) {"{"}
+    struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
+    h->head.kind = shm_get_hole_kind();
+    h->cases.hole.n = 0;
 {"}"}
 
-static void update_hole(shm_event *h, shm_event *ev) {"{"}
-    ((EVENT_hole *)h)->n++;
+static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
+    (void)ev;
+    struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
+    ++h->cases.hole.n;
 {"}"}
 {events_enum_kinds(components["event_source"], streams_to_events_map)}
 {special_hole_structs()}
@@ -1735,11 +1800,21 @@ static void update_hole(shm_event *h, shm_event *ev) {"{"}
 
 {instantiate_stream_args()}
 int arbiter_counter;
+bool ARB_CHANGE_ = false;
 // monitor buffer
 shm_monitor_buffer *monitor_buffer;
 
 bool is_selection_successful;
 dll_node **chosen_streams; // used in rule set for get_first/last_n
+int current_size_chosen_stream = 0;
+
+void update_size_chosen_streams(const int s) {"{"}
+    if (s > current_size_chosen_stream) {"{"}
+        free(chosen_streams);
+        chosen_streams = (dll_node **) calloc(s, sizeof(dll_node*));
+        current_size_chosen_stream = s;
+    {"}"}
+{"}"}
 
 // globals code
 {get_globals_code(components, streams_to_events_map, stream_types)}
@@ -1786,7 +1861,7 @@ void done() {{
 
 static inline bool are_streams_done() {"{"}
     assert(count_event_streams >=0);
-    return (count_event_streams == 0 && are_buffers_done()) || __work_done;
+    return (count_event_streams == 0 && are_buffers_done() && !ARB_CHANGE_) || __work_done;
 {"}"}
 
 static inline bool is_buffer_done(shm_arbiter_buffer *b) {"{"}
@@ -1938,7 +2013,6 @@ def get_c_program(components, ast, streams_to_events_map, stream_types, arbiter_
 int main(int argc, char **argv) {"{"}
     setup_signals();
 
-	chosen_streams = (dll_node **) calloc({TypeChecker.max_choose_size}, sizeof(dll_node*)); // the maximum size this can have is the total number of event sources
     arbiter_counter = 10;
 	{get_pure_c_code(components, 'startup')}
     {initialize_stream_args()}

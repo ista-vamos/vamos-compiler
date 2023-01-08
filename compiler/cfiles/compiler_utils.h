@@ -29,9 +29,9 @@ void bg_remove_first_n(buffer_group *bg, int n);
 
 void bg_remove_last_n(buffer_group *bg, int n);
 
-bool bg_get_first_n(buffer_group *bg, int at_least, int n, dll_node ***result);
+bool bg_get_first_n(buffer_group *bg, int at_least, dll_node ***result);
 
-bool bg_get_last_n(buffer_group *bg, int at_least, int n, dll_node ***result);
+bool bg_get_last_n(buffer_group *bg, int at_least, dll_node ***result);
 
 void swap_dll_node(dll_node *node1, dll_node *node2);
 

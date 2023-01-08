@@ -22,7 +22,7 @@ void destroy_buffer_group(buffer_group *bg) {
 }
 
 void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2)) {
-    dll_node *new_node =  malloc(sizeof(dll_node));
+    dll_node *new_node =  (dll_node *) malloc(sizeof(dll_node));
     new_node->stream = stream;
     new_node->buffer = buffer;
     new_node->args = args;
@@ -123,24 +123,24 @@ void bg_remove_last_n(buffer_group *bg, int n) {
     }
 }
 
-bool bg_get_first_n(buffer_group *bg, int at_least, int n, dll_node ***result) {
+bool bg_get_first_n(buffer_group *bg, int at_least, dll_node ***result) {
     if (bg->size < at_least) {
         return false;
     }
     dll_node * curr = bg->head;
-    for (int i = 0; i < n && curr!=NULL; i++){
+    for (int i = 0; curr!=NULL; i++){
         (*result)[i] = curr;
         curr = curr->next;
     }
     return true;
 }
 
-bool bg_get_last_n(buffer_group *bg, int at_least, int n, dll_node ***result) {
+bool bg_get_last_n(buffer_group *bg, int at_least, dll_node ***result) {
     if (bg->size < at_least) {
         return false;
     }
     dll_node * curr = bg->tail;
-    for (int i = 0; i< n && curr!=NULL; i++){
+    for (int i = 0; curr!=NULL; i++){
         (*result)[i] = curr;
         curr = curr->prev;
     }

@@ -51,9 +51,9 @@ reserved = {
     "all": "ALL",
     "add": "ADD",
     "in": "IN",
-    "count": "COUNT",
-    "max": "MAX",
-    "min": "MIN",
+    "COUNT": "COUNT",
+    "MAX": "MAX",
+    "MIN": "MIN",
     "always": "ALWAYS",
     "continue": "CONTINUE"
 }

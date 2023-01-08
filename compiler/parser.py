@@ -710,7 +710,7 @@ def p_buffer_match_exp(p):
                      | ID '(' ')'
                      | CHOOSE choose_order listids FROM ID
                      | CHOOSE listids FROM ID
-                     | event_src_ref ':' list_ev_src_status
+                     | event_src_ref ':' ev_src_status
                      | event_src_ref ':' '|' list_event_calls
                      | event_src_ref ':' list_event_calls '|'
                      | event_src_ref ':' list_event_calls '|' list_event_calls
@@ -758,17 +758,6 @@ def p_buffer_match_exp(p):
         TypeChecker.assert_symbol_type(p[1][1], EVENT_SOURCE_NAME)
         p[0] = ("buff_match_exp", p[PBUFFER_MATCH_EV_NAME], p[PBUFFER_MATCH_ARG1],'|',p[PBUFFER_MATCH_ARG3])
 
-
-def p_list_ev_src_status(p):
-    '''
-    list_ev_src_status : ev_src_status
-                       | ev_src_status ',' list_ev_src_status
-    '''
-
-    if len(p) == 2:
-        p[0] = p[1]
-    else:
-        p[0] = ("l-ev-src-status", p[1], p[3])
 
 def p_ev_src_status(p):
     '''
@@ -1091,7 +1080,7 @@ def p_field_access(p):
     p[0] = ('field_access', stream, index, field)
 
 def p_error(p):
-  print("Syntax error at %s"%p.value)
+    print(f"Syntax error at line {p.lineno} (value={p.value}, token={p.type})")
 
 # public interface
 def parse_program(s: str):

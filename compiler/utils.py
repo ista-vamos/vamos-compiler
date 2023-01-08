@@ -440,7 +440,7 @@ def get_parameters_names(tree: Tuple, stream_name: str, mapping: Dict[str, Dict]
         get_list_ids(tree[PPLIST_EV_CALL_EV_PARAMS], ids)
         assert(len(ids) == len(mapping[tree[PPLIST_EV_CALL_EV_NAME]]['args']))
         for (arg_bind, arg) in zip(mapping[tree[PPLIST_EV_CALL_EV_NAME]]['args'], ids):
-            binded_args[arg] = (stream_name, tree[PPLIST_EV_CALL_EV_NAME], arg_bind[0], arg_bind[1], index, stream_index)
+            binded_args[arg] = (stream_name, tree[PPLIST_EV_CALL_EV_NAME], arg_bind['name'], arg_bind['type'], index, stream_index)
         get_parameters_names(tree[PPLIST_EV_CALL_TAIL], stream_name, mapping, binded_args, index+1)
     else:
         assert(tree[0] == 'ev_call')
