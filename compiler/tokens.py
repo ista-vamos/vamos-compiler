@@ -1,14 +1,14 @@
 reserved = {
-    'if': 'IF',
-    'then': 'THEN',
-    'else': 'ELSE',
-    'stream':"STREAM",
-    'type': "TYPE",
-    'autodrop': "AUTODROP",
-    'infinite': "INFINITE",
-    "blocking" : "BLOCKING",
-    'drop': "DROP",
-    'forward': "FORWARD",
+    "if": "IF",
+    "then": "THEN",
+    "else": "ELSE",
+    "stream": "STREAM",
+    "type": "TYPE",
+    "autodrop": "AUTODROP",
+    "infinite": "INFINITE",
+    "blocking": "BLOCKING",
+    "drop": "DROP",
+    "forward": "FORWARD",
     "on": "ON",
     "done": "DONE",
     "nothing": "NOTHING",
@@ -32,18 +32,18 @@ reserved = {
     "process": "PROCESS",
     "using": "USING",
     "dynamic": "DYNAMIC",
-    "buffer" : "BUFFER",
-    "group" : "GROUP",
+    "buffer": "BUFFER",
+    "group": "GROUP",
     "match": "MATCH",
     "fun": "FUN",
     "choose": "CHOOSE",
     "by": "BY",
     "remove": "REMOVE",
-    "globals" : "GLOBALS",
+    "globals": "GLOBALS",
     "startup": "STARTUP",
     "cleanup": "CLEANUP",
-    "processor" : "PROCESSOR",
-    "include" : "INCLUDE",
+    "processor": "PROCESSOR",
+    "include": "INCLUDE",
     "includes": "INCLUDES",
     "first": "FIRST",
     "last": "LAST",
@@ -55,14 +55,16 @@ reserved = {
     "MAX": "MAX",
     "MIN": "MIN",
     "always": "ALWAYS",
-    "continue": "CONTINUE"
+    "continue": "CONTINUE",
 }
 
 # Token names.
 tokens = [
     # data types
-     "BOOL", "INT", "ID",
-     # ccode
-     "CCODE_TOKEN",
-    "BEGIN_CCODE"
- ] + list(reserved.values())
+    "BOOL",
+    "INT",
+    "ID",
+    # ccode
+    "CCODE_TOKEN",
+    "BEGIN_CCODE",
+] + list(reserved.values())

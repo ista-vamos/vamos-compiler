@@ -163,5 +163,3 @@ PPMONITOR_RULE_CODE = 4
 
 # p_type
 PTYPE_NAME = 1
-
-
