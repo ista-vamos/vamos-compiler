@@ -24,7 +24,7 @@ parser.add_argument(
     help="Legacy mode: only generate C file with monitor code (plus TeSSLa interface where applicable).",
 )
 parser.add_argument(
-    "-o", "--out", help="Output file for monitor C code.", default="vamos_monitor.c"
+    "-o", "--out", help="Output file for monitor C code.", default="/tmp/vamos_monitor.c"
 )
 parser.add_argument(
     "-e", "--executable", help="Path of the executable to generate.", default="monitor"
@@ -61,7 +61,7 @@ parser.add_argument(
     "-s",
     "--compilescript",
     help="Path to the compile script that should be generated.",
-    default="vamos_compile.sh",
+    default="/tmp/vamos_compile.sh",
 )
 parser.add_argument("-v", "--verbose", action="store_true")
 parser.add_argument("-g", "--debug", action="store_true")
@@ -130,7 +130,7 @@ cscript_path = args.compilescript
 executable_path = os.path.abspath(args.executable)
 # if
 
-ownpath = str(Path(os.path.abspath(__file__)).absolute().parent)
+ownpath = str(Path(os.path.abspath(__file__)).absolute().parent.parent)
 
 if args.with_tessla is not None:
     if args.dir is None:
@@ -224,7 +224,7 @@ if args.legacy_mode is not True:
 
     output_file.write("CC=clang\n")
     output_file.write(
-        'CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I$SHAMON_INCLUDE_DIR\\\n'
+        'CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I$SELFDIR -I$SHAMON_INCLUDE_DIR\\\n'
     )
     output_file.write(
         '          -I$SHAMON_INCLUDE_DIR/streams -I$SHAMON_INCLUDE_DIR/core -I$SHAMON_INCLUDE_DIR/shmbuf"\n\n'
