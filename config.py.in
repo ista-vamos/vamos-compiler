@@ -25,6 +25,8 @@ else:
 
 #shamon_<library>_LIBRARY# 	PATH 	Full path for each of the ROOT libraries listed in COMPONENTS.
 
+shamon_BUILD_TYPE               = "@shamon_BUILD_TYPE@"
+
 shamon_ENABLE_IPO_OPTION        = "@shamon_ENABLE_IPO_OPTION@".upper()
 shamon_DYNAMORIO_SOURCES_OPTION = "@shamon_DYNAMORIO_SOURCES_OPTION@".upper()
 shamon_BPF_SOURCES_OPTION       = "@shamon_BPF_SOURCES_OPTION@".upper()

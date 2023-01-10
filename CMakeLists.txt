@@ -12,11 +12,13 @@ get_filename_component(shamon_LIBRARIES_DIRS_core ${shamon_shamon-ringbuf} DIREC
 get_filename_component(shamon_LIBRARIES_DIRS_shmbuf ${shamon_shamon-shmbuf} DIRECTORY)
 get_filename_component(shamon_LIBRARIES_DIRS_streams ${shamon_shamon-streams} DIRECTORY)
 
-SET (CMAKE_VERBOSE_MAKEFILE 1)
+set(CMAKE_VERBOSE_MAKEFILE 1)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.py.in
 	       ${CMAKE_CURRENT_SOURCE_DIR}/config.py)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.sh.in
+	       ${CMAKE_CURRENT_SOURCE_DIR}/config.sh)
 

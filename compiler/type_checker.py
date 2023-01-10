@@ -1,8 +1,8 @@
 from typing import Dict, Set, Optional
 from copy import deepcopy
 
-from .tokens import reserved
-from .utils import *
+from tokens import reserved
+from utils import *
 
 # define some types:
 VARIABLE = "variable"

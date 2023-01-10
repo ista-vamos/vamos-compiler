@@ -2,7 +2,7 @@ from operator import pos
 import os
 import shutil
 
-from .cfile_utils import *
+from cfile_utils import *
 
 old_state_type = """State<
 (),

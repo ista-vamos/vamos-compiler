@@ -1,10 +1,10 @@
 import ply.lex as lex
 from ply.yacc import yacc
-from .lexer import MyLexer
-from .type_checker import *
-from .utils import *
-from .tokens import *
-from .parser_indices import *
+from lexer import MyLexer
+from type_checker import *
+from utils import *
+from tokens import *
+from parser_indices import *
 
 
 # this is the entry point
