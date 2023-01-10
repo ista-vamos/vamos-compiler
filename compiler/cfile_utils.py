@@ -1839,16 +1839,21 @@ def declare_rule_set_counters(tree):
 
 def get_imports():
     return f"""
-#include "shamon.h"
-#include "mmlib.h"
-#include "monitor.h"
-#include "./compiler/cfiles/compiler_utils.h"
 #include <threads.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <stdatomic.h>
+#include <assert.h>
 #include <limits.h>
+
+#include "shamon/core/arbiter.h"
+#include "shamon/core/monitor.h"
+#include "shamon/core/utils.h"
+#include "shamon/streams/streams.h"
+
+#include "compiler/cfiles/compiler_utils.h"
 """
 
 

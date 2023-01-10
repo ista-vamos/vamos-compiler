@@ -4,16 +4,14 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-#include "arbiter.h"
-#include "monitor.h"
-#include "source.h"
-#include "stream.h"
-#include "utils.h" /* sleeping */
+#include "shamon/core/arbiter.h"
+#include "shamon/core/monitor.h"
+#include "shamon/core/source.h"
+#include "shamon/core/stream.h"
+#include "shamon/core/utils.h" /* sleeping */
 
 /*
  * The high-level workflow is as follows:
- *
- *  initialize_events();
  *
  *  // create a stream -- stream specific
  *  shm_stream *stream = shm_stream_XXX_create(...);

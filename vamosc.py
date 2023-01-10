@@ -13,6 +13,8 @@ from compiler.cfile_utils import get_c_program
 from compiler.utils import *
 from compiler.tessla_utils import get_rust_file, get_c_interface, update_toml
 
+from config import shamon_LIBRARIES_DIRS_core, shamon_LIBRARIES_DIRS_shmbuf, shamon_LIBRARIES_DIRS_streams, shamon_INCLUDE_DIR
+
 parser = argparse.ArgumentParser(prog="vamosc")
 parser.add_argument("inputfile", type=str, help="VAMOS program to compile.")
 parser.add_argument(
@@ -71,7 +73,7 @@ parser.add_argument(
 args = parser.parse_args()
 bufsize = args.bufsize
 
-input_file = args.inputfile  # second argument should be input file
+input_file = Path(args.inputfile).absolute()  # second argument should be input file
 parsed_args_file = replace_cmd_args(open(input_file).readlines(), bufsize)
 file = " ".join(parsed_args_file)
 
@@ -128,7 +130,7 @@ cscript_path = args.compilescript
 executable_path = os.path.abspath(args.executable)
 # if
 
-ownpath = str(Path(os.path.abspath(__file__)).absolute().parent.parent)
+ownpath = str(Path(os.path.abspath(__file__)).absolute().parent)
 
 if args.with_tessla is not None:
     if args.dir is None:
@@ -217,14 +219,15 @@ if args.legacy_mode is not True:
     else:
         output_file.write("set +x\n\n")
 
-    output_file.write(f'VAMOSDIR="{ownpath}"\n')
+    output_file.write(f'SELFDIR="{ownpath}"\n')
+    output_file.write(f'SHAMON_INCLUDE_DIR="{shamon_INCLUDE_DIR}"\n')
 
     output_file.write("CC=clang\n")
     output_file.write(
-        'CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I$VAMOSDIR/gen -I$VAMOSDIR\\\n'
+        'CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I$SHAMON_INCLUDE_DIR\\\n'
     )
     output_file.write(
-        '          -I$VAMOSDIR/streams -I$VAMOSDIR/core -I$VAMOSDIR/shmbuf"\n\n'
+        '          -I$SHAMON_INCLUDE_DIR/streams -I$SHAMON_INCLUDE_DIR/core -I$SHAMON_INCLUDE_DIR/shmbuf"\n\n'
     )
 
     if args.debug:
@@ -236,19 +239,19 @@ if args.legacy_mode is not True:
         output_file.write('CPPFLAGS="$CPPFLAGS -DNDEBUG"\n\n')
 
     linklibraries = [
-        "$VAMOSDIR/core/libshamon-arbiter.a",
-        "$VAMOSDIR/core/libshamon-stream.a",
-        "$VAMOSDIR/shmbuf/libshamon-shmbuf.a",
-        "$VAMOSDIR/core/libshamon-parallel-queue.a",
-        "$VAMOSDIR/core/libshamon-ringbuf.a",
-        "$VAMOSDIR/core/libshamon-event.a",
-        "$VAMOSDIR/core/libshamon-source.a",
-        "$VAMOSDIR/core/libshamon-signature.a",
-        "$VAMOSDIR/core/libshamon-list.a",
-        "$VAMOSDIR/core/libshamon-utils.a",
-        "$VAMOSDIR/core/libshamon-monitor-buffer.a",
-        "$VAMOSDIR/streams/libshamon-streams.a",
-        "$VAMOSDIR/compiler/cfiles/compiler_utils.o",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-arbiter.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-stream.a",
+        f"{shamon_LIBRARIES_DIRS_shmbuf}/libshamon-shmbuf.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-parallel-queue.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-ringbuf.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-event.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-source.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-signature.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-list.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-utils.a",
+        f"{shamon_LIBRARIES_DIRS_core}/libshamon-monitor-buffer.a",
+        f"{shamon_LIBRARIES_DIRS_streams}/libshamon-streams.a",
+         "$SELFDIR/compiler/cfiles/compiler_utils.o",
     ]
 
     if args.link is not None:
@@ -274,6 +277,7 @@ if args.legacy_mode is not True:
         output_file.write(f"cd $CURPATH\n\n")
 
     output_file.write("test -z $CC && CC=cc\n")
+    output_file.write("${CC} -I$SHAMON_INCLUDE_DIR -c $CFLAGS $SELFDIR/compiler/cfiles/compiler_utils.c -o $SELFDIR/compiler/cfiles/compiler_utils.o\n")
     output_file.write(
         "${CC} $CFLAGS $LTOFLAGS $CPPFLAGS -o $EXECUTABLEPATH $CFILEPATH $@ $LIBRARIES $LDFLAGS\n"
     )

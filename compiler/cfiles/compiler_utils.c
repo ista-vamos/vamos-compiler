@@ -1,7 +1,9 @@
-#include "compiler_utils.h"
-#include "../../core/shamon.h"
-#include "../../gen/mmlib.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+
+#include "compiler_utils.h"
+#include "shamon/core/shamon.h"
 
 void init_buffer_group(buffer_group *bg) {
     //bg = malloc(sizeof(buffer_group));

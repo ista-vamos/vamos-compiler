@@ -1,5 +1,5 @@
-#include "../../core/shamon.h"
-#include "../../gen/mmlib.h"
+#include "shamon/core/shamon.h"
+//#include "gen/mmlib.h"
 
 typedef struct _dll_node {
     struct _dll_node *next;

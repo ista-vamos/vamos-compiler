@@ -1,0 +1,32 @@
+
+source_dir = "@CMAKE_CURRENT_SOURCE_DIR@"
+
+shamon_DIR         = "@shamon_DIR@"
+shamon_BINARY_DIR  = "@shamon_BINARY_DIR@"
+shamon_SOURCE_DIR  = "@shamon_SOURCE_DIR@"
+
+if shamon_DIR.endswith("/cmake"):
+    # installed library
+    raise NotImplementedError("Not implemented")
+   #shamon_INCLUDE_DIRS = "@shamon_INCLUDE_DIRS@"
+   #shamon_LIBRARIES = "@shamon_LIBRARIES@"
+else:
+    shamon_LIBRARIES_DIRS_core = "@shamon_LIBRARIES_DIRS_core@"
+    shamon_LIBRARIES_DIRS_shmbuf = "@shamon_LIBRARIES_DIRS_shmbuf@"
+    shamon_LIBRARIES_DIRS_streams = "@shamon_LIBRARIES_DIRS_streams@"
+    shamon_INCLUDE_DIR = "@shamon_DIR@/include"
+   #shamon_INCLUDE_DIRS = f"{shamon_DIR}/core;{shamon_DIR}/shmbuf"
+   #shamon_LIBRARIES_DIRS = f"{shamon_DIR};{shamon_DIR}/core;{shamon_DIR}/shmbuf"
+
+# shamon_DEFINITIONS = "@shamon_DEFINITIONS@"
+# shamon_CXX_FLAGS  = "@shamon_CXX_FLAGS@"
+# shamon_CC_FLAGS  = "@shamon_CC_FLAGS@"
+# shamon_C_FLAGS  = "@shamon_C_FLAGS@"
+
+#shamon_<library>_LIBRARY# 	PATH 	Full path for each of the ROOT libraries listed in COMPONENTS.
+
+shamon_ENABLE_IPO_OPTION        = "@shamon_ENABLE_IPO_OPTION@".upper()
+shamon_DYNAMORIO_SOURCES_OPTION = "@shamon_DYNAMORIO_SOURCES_OPTION@".upper()
+shamon_BPF_SOURCES_OPTION       = "@shamon_BPF_SOURCES_OPTION@".upper()
+shamon_LLVM_SOURCES_OPTION      = "@shamon_LLVM_SOURCES_OPTION@".upper()
+
