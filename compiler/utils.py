@@ -1,6 +1,7 @@
 # general utils
 from typing import List, Tuple, Dict, Any, Set
-from parser_indices import *
+
+from .parser_indices import *
 
 
 def parse_list_events_agg_func(tree, result):

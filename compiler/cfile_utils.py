@@ -1,9 +1,10 @@
 # all the function declared here return a string of C-code
 from typing import Type
-from utils import *
-from parser_indices import *
-from type_checker import TypeChecker, ARBITER_RULE_SET
 from itertools import combinations
+
+from .utils import *
+from .parser_indices import *
+from .type_checker import TypeChecker, ARBITER_RULE_SET
 
 
 class StaticCounter:

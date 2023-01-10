@@ -1,15 +1,17 @@
-import sys
+#!/usr/bin/env python3
 
-from parser import parse_program
-from type_checker import TypeChecker
+import sys
 import argparse
-from cfile_utils import get_c_program
-from utils import *
 import os
-from tessla_utils import get_rust_file, get_c_interface, update_toml
-from pathlib import Path
 import shutil
 import subprocess
+from pathlib import Path
+
+from compiler.parser import parse_program
+from compiler.type_checker import TypeChecker
+from compiler.cfile_utils import get_c_program
+from compiler.utils import *
+from compiler.tessla_utils import get_rust_file, get_c_interface, update_toml
 
 parser = argparse.ArgumentParser(prog="vamosc")
 parser.add_argument("inputfile", type=str, help="VAMOS program to compile.")
