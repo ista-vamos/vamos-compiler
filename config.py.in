@@ -14,7 +14,7 @@ else:
     shamon_LIBRARIES_DIRS_core = "@shamon_LIBRARIES_DIRS_core@"
     shamon_LIBRARIES_DIRS_shmbuf = "@shamon_LIBRARIES_DIRS_shmbuf@"
     shamon_LIBRARIES_DIRS_streams = "@shamon_LIBRARIES_DIRS_streams@"
-    shamon_INCLUDE_DIR = "@shamon_DIR@/include"
+    shamon_INCLUDE_DIR = "@shamon_DIR@/../../include"
    #shamon_INCLUDE_DIRS = f"{shamon_DIR}/core;{shamon_DIR}/shmbuf"
    #shamon_LIBRARIES_DIRS = f"{shamon_DIR};{shamon_DIR}/core;{shamon_DIR}/shmbuf"
 
