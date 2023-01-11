@@ -19,9 +19,9 @@ CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I${GENDIR} -I$shamon_INCLUDE_DIR\
 	   -I$shamon_INCLUDE_DIR/shmbuf -I$GENDIR/.."
 LTOFLAGS=""
 if [ "$shamon_BUILD_TYPE" = "Debug" ]; then
-	CFLAGS="-g -O0"
+	CFLAGS="-g -O0 -std=c11"
 else
-	CFLAGS="-g3 -O3 -fPIC -std=c11"
+	CFLAGS="-g3 -O3 -std=c11"
 	if [ -z "$NOLTO" ]; then
 		LTOFLAGS="-flto -fno-fat-lto-objects"
 	fi
@@ -43,4 +43,4 @@ LIBRARIES="$shamon_LIBRARIES_DIRS_core/libshamon-arbiter.a\
            $shamon_LIBRARIES_DIRS_streams/libshamon-streams.a"
 
 test -z $CC && CC=cc
-${CC} $CFLAGS $LTOFLAGS $CPPFLAGS -o $CURDIR/monitor $MONITORSRC $@ $LIBRARIES $LDFLAGS -DSHMBUF_ARBITER_BUFSIZE=$ARBITER_BUFSIZE
+${CC} $CFLAGS $LTOFLAGS $CPPFLAGS -o $CURDIR/monitor $MONITORSRC $@ $LIBRARIES $LDFLAGS #-DSHMBUF_ARBITER_BUFSIZE=$ARBITER_BUFSIZE
