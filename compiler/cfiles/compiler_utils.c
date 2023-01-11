@@ -10,8 +10,6 @@ void init_buffer_group(buffer_group *bg) {
     bg->size = 0;
     bg->head = NULL;
     bg->tail = NULL;
-    bg->waiting_list_head = NULL;
-    bg->waiting_list_tail = NULL;
 }
 
 void destroy_buffer_group(buffer_group *bg) {
@@ -25,39 +23,11 @@ void destroy_buffer_group(buffer_group *bg) {
     //free(bg);
 }
 
-void bg_merge_waiting_list(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
-    dll_node * current = bg->waiting_list_head;
-    while(current != NULL) {
-        shm_stream *s = current->stream;
-        void *b = current->buffer;
-        void *args = current->args;
-        
-        dll_node *next = current->next; 
-        bg_insert(bg, current, order_exp);
-        current = next;
-    }
-
-    bg->waiting_list_head = NULL;
-    bg->waiting_list_tail = NULL;
-}
-
-void bg_add_to_waiting_list(buffer_group *bg, shm_stream *stream, void* buffer, void *args) {
+void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2)) {
     dll_node *new_node =  (dll_node *) malloc(sizeof(dll_node));
     new_node->stream = stream;
     new_node->buffer = buffer;
     new_node->args = args;
-    new_node->next = NULL;
-    new_node->prev = NULL;
-    if(bg->waiting_list_head == NULL) {
-        bg->head = new_node;
-        bg->tail = new_node;
-    } else {
-        bg->tail->next = new_node;
-        bg->tail = new_node;
-    }
-}
-
-void bg_insert(buffer_group *bg, dll_node *new_node, bool (*order_exp)(void *args1, void *args2)) {
     new_node->next = NULL;
     new_node->prev = NULL;
     if(bg->size == 0) {
@@ -65,8 +35,8 @@ void bg_insert(buffer_group *bg, dll_node *new_node, bool (*order_exp)(void *arg
         bg->tail = new_node;
     } else {
         // check if it goes on the tail
-        if (bg->tail->stream == new_node->stream) return;
-        if (bg->head->stream == new_node->stream) return;
+        if (bg->tail->stream == stream) return;
+        if (bg->head->stream == stream) return;
         if (order_exp(new_node->args, bg->tail->args)) {
             bg->tail->next = new_node;
             new_node->next = NULL;
@@ -75,7 +45,7 @@ void bg_insert(buffer_group *bg, dll_node *new_node, bool (*order_exp)(void *arg
         }
         // check if it goes on head
         
-        else if(!order_exp(new_node->args, bg->head->args)) {
+        else if(!order_exp(args, bg->head->args)) {
             new_node->next = bg->head;
             new_node->prev = NULL;
             bg->head->prev = new_node;
@@ -89,7 +59,7 @@ void bg_insert(buffer_group *bg, dll_node *new_node, bool (*order_exp)(void *arg
             }
 
             dll_node *prev_node = curr->prev;
-            if(curr->stream == new_node->stream || prev_node->stream == new_node->stream) return;
+            if(curr->stream == stream || prev_node->stream == stream) return;
             new_node->prev = prev_node;
             new_node->next = curr;
 
