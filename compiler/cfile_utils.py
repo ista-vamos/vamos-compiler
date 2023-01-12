@@ -1547,7 +1547,13 @@ def check_progress(rule_set_name, tree, existing_buffers):
     answer += "__work_done=1; abort();"
     answer += "}\n"
 
-    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > 8000000) {{\
+    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > 1000) {{\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt % 1000 == 0) _mm_pause();\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > 100000 &&\
+                    RULE_SET_{rule_set_name}_nomatch_cnt % 1000 == 0) sleep_ns(10);\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > 1000000 &&\
+                    RULE_SET_{rule_set_name}_nomatch_cnt % 100 == 0) sleep_ns(10);"
+    answer += f"if (RULE_SET_{rule_set_name}_nomatch_cnt > 10000000) {{\
         \tRULE_SET_{rule_set_name}_nomatch_cnt = 0;"
     answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles long time without progress\\033[0m\\n\");"
     for (ev_source, data) in TypeChecker.event_sources_data.items():
@@ -1573,7 +1579,7 @@ def check_progress(rule_set_name, tree, existing_buffers):
         answer += f"{'{'}int i = 0; \n while (current){'{'} {print_dll_node_code(buffer_group, buffer_to_src_idx)} current = current->next;\n i+=1;\n{'}'}\n{'}'}"
 
     answer += 'fprintf(stderr, "Seems all rules are waiting for some events that are not coming\\n");'
-    answer += "}\n"
+    answer += "}}\n"
 
     return answer
 
@@ -1826,6 +1832,7 @@ def get_imports():
 #include <stdatomic.h>
 #include <assert.h>
 #include <limits.h>
+#include <immintrin.h> /* _mm_pause */
 
 #include "shamon/core/arbiter.h"
 #include "shamon/core/monitor.h"
