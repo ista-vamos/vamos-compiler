@@ -1,6 +1,5 @@
-shamon_LIBRARIES_DIRS_core="@shamon_LIBRARIES_DIRS_core@"
-shamon_LIBRARIES_DIRS_shmbuf="@shamon_LIBRARIES_DIRS_shmbuf@"
-shamon_LIBRARIES_DIRS_streams="@shamon_LIBRARIES_DIRS_streams@"
-shamon_INCLUDE_DIR="@shamon_INCLUDE_DIRS@"
-
-shamon_BUILD_TYPE="@shamon_BUILD_TYPE@"
+vamos_buffers_LIBRARIES_DIRS_core="@vamos-buffers_LIBRARIES_DIRS_core@"
+vamos_buffers_LIBRARIES_DIRS_shmbuf="@vamos-buffers_LIBRARIES_DIRS_shmbuf@"
+vamos_buffers_LIBRARIES_DIRS_streams="@vamos-buffers_LIBRARIES_DIRS_streams@"
+vamos_buffers_INCLUDE_DIR="@vamos-buffers_INCLUDE_DIRS@"
+vamos_buffers_BUILD_TYPE="@vamos-buffers_BUILD_TYPE@"

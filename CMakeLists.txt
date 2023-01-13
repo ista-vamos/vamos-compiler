@@ -1,22 +1,23 @@
 cmake_minimum_required(VERSION 3.9)
 project(vamos-compiler LANGUAGES C VERSION 0.1)
 
-find_package(shamon REQUIRED)
+find_package(vamos-buffers REQUIRED)
 
-get_target_property(shamon_shamon-lib shamon-lib LOCATION)
-get_target_property(shamon_shamon-ringbuf shamon-ringbuf LOCATION)
-get_target_property(shamon_shamon-shmbuf shamon-shmbuf LOCATION)
-get_target_property(shamon_shamon-streams shamon-streams LOCATION)
-get_filename_component(shamon_LIBRARIES_DIRS_lib ${shamon_shamon-lib} DIRECTORY)
-get_filename_component(shamon_LIBRARIES_DIRS_core ${shamon_shamon-ringbuf} DIRECTORY)
-get_filename_component(shamon_LIBRARIES_DIRS_shmbuf ${shamon_shamon-shmbuf} DIRECTORY)
-get_filename_component(shamon_LIBRARIES_DIRS_streams ${shamon_shamon-streams} DIRECTORY)
+get_target_property(vamos-buffers_vamos-buffers-lib vamos-buffers-lib LOCATION)
+get_target_property(vamos-buffers_vamos-buffers-ringbuf vamos-buffers-ringbuf LOCATION)
+get_target_property(vamos-buffers_vamos-buffers-shmbuf vamos-buffers-shmbuf LOCATION)
+get_target_property(vamos-buffers_vamos-buffers-streams vamos-buffers-streams LOCATION)
+get_filename_component(vamos-buffers_LIBRARIES_DIRS_lib ${vamos-buffers_vamos-buffers-lib} DIRECTORY)
+get_filename_component(vamos-buffers_LIBRARIES_DIRS_core ${vamos-buffers_vamos-buffers-ringbuf} DIRECTORY)
+get_filename_component(vamos-buffers_LIBRARIES_DIRS_shmbuf ${vamos-buffers_vamos-buffers-shmbuf} DIRECTORY)
+get_filename_component(vamos-buffers_LIBRARIES_DIRS_streams ${vamos-buffers_vamos-buffers-streams} DIRECTORY)
 
 set(CMAKE_VERBOSE_MAKEFILE 1)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+get_filename_component(vamos-buffers_DIR ${vamos-buffers_DIR} ABSOLUTE)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.py.in
 	       ${CMAKE_CURRENT_SOURCE_DIR}/config.py)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.sh.in

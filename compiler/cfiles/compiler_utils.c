@@ -3,7 +3,7 @@
 #include <assert.h>
 
 #include "compiler_utils.h"
-#include "shamon/core/shamon.h"
+#include "vamos-buffers/core/shamon.h"
 
 void init_buffer_group(buffer_group *bg) {
     //bg = malloc(sizeof(buffer_group));

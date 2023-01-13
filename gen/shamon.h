@@ -4,11 +4,11 @@
 #include <stdbool.h>
 #include <unistd.h>
 
-#include "shamon/core/arbiter.h"
-#include "shamon/core/monitor.h"
-#include "shamon/core/source.h"
-#include "shamon/core/stream.h"
-#include "shamon/core/utils.h" /* sleeping */
+#include "vamos-buffers/core/arbiter.h"
+#include "vamos-buffers/core/monitor.h"
+#include "vamos-buffers/core/source.h"
+#include "vamos-buffers/core/stream.h"
+#include "vamos-buffers/core/utils.h" /* sleeping */
 
 /*
  * The high-level workflow is as follows:
