@@ -1503,7 +1503,7 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
 """
 
 
-def check_progress(rule_set_name, tree, existing_buffers):
+def check_progress(rule_set_name, tree, existing_buffers, args):
     buffers_to_peek = (
         dict()
     )  # maps buffer_name to the number of elements we want to retrieve from the buffer
@@ -1547,14 +1547,19 @@ def check_progress(rule_set_name, tree, existing_buffers):
     answer += "__work_done=1; abort();"
     answer += "}\n"
 
-    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > 1000) {{\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt % 1000 == 0) _mm_pause();\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt > 100000 &&\
-                    RULE_SET_{rule_set_name}_nomatch_cnt % 1000 == 0) sleep_ns(10);\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt > 1000000 &&\
-                    RULE_SET_{rule_set_name}_nomatch_cnt % 100 == 0) sleep_ns(10);"
-    answer += f"if (RULE_SET_{rule_set_name}_nomatch_cnt > 10000000) {{\
-        \tRULE_SET_{rule_set_name}_nomatch_cnt = 0;"
+    N = int(args.freq)
+    # ns are 10^9 but we divide the number by 10^4 to have enough time to perform
+    # instructions around and have some space for fluctuations
+    sleep_time_ns = (1 / float(N))*(10**5)
+    sleep_code = f"sleep_ns({sleep_time_ns})" if sleep_time_ns > 5 else "_mm_pause()"
+
+    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > {5*N}) {{\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) _mm_pause();\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {10*N} &&\
+                    RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) {sleep_code};\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {12*N}) {sleep_code};\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {13*N}) {{\
+                    RULE_SET_{rule_set_name}_nomatch_cnt = 0;"
     answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles long time without progress\\033[0m\\n\");"
     for (ev_source, data) in TypeChecker.event_sources_data.items():
 
@@ -1584,7 +1589,7 @@ def check_progress(rule_set_name, tree, existing_buffers):
     return answer
 
 
-def build_rule_set_functions(tree, mapping, stream_types, existing_buffers):
+def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, args):
     def local_explore_rule_list(local_tree) -> str:
         if local_tree[0] == "arb_rule_list":
             return local_explore_rule_list(local_tree[1]) + local_explore_rule_list(
@@ -1611,7 +1616,7 @@ def build_rule_set_functions(tree, mapping, stream_types, existing_buffers):
                     f"int RULE_SET_{rule_set_name}() {'{'}\n"
                     f"{buffer_peeks(local_tree[2], existing_buffers)}"
                     f"{local_explore_rule_list(local_tree[2])}"
-                    f"{check_progress(rule_set_name, local_tree[2], existing_buffers)}"
+                    f"{check_progress(rule_set_name, local_tree[2], existing_buffers, args)}"
                     f"{TypeChecker.always_code}"
                     f"\treturn 0;\n"
                     f"{'}'}"
@@ -1967,6 +1972,7 @@ def outside_main_code(
     ast,
     arbiter_event_source,
     existing_buffers,
+    args
 ):
     return f"""
 
@@ -2198,7 +2204,7 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {print_event_name(stream_types, streams_to_events_map)}
 {get_event_at_head()}
 {print_buffers_state()}
-{build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers)}
+{build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, args)}
 {arbiter_code(ast[2], components)}
 
 {define_signal_handlers(components["event_source"])}
@@ -2230,12 +2236,13 @@ def get_c_program(
     stream_types,
     arbiter_event_source,
     existing_buffers,
+    args
 ):
     program = f"""
 
 {get_imports()}
 
-{outside_main_code(components, streams_to_events_map, stream_types, ast, arbiter_event_source, existing_buffers)}
+{outside_main_code(components, streams_to_events_map, stream_types, ast, arbiter_event_source, existing_buffers, args)}
 int main(int argc, char **argv) {"{"}
     setup_signals();
 

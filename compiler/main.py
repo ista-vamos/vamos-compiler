@@ -31,6 +31,12 @@ parser.add_argument(
     "--bufsize",
     help="Is the value used to replace @BUFSIZE in a VAMOS specification",
 )
+parser.add_argument(
+    "-freq",
+    "--freq",
+    type=int, metavar="N", default=50000,
+    help="Expected frequency of incoming events (N per second, deafult=50000)",
+)
 
 args = parser.parse_args()
 bufsize = args.bufsize
@@ -148,6 +154,7 @@ else:
         stream_types,
         arbiter_event_source,
         existing_buffers,
+        args
     )
     output_file = open(output_path, "w")
     output_file.write(program)
