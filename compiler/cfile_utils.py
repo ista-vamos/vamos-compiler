@@ -1839,10 +1839,10 @@ def get_imports():
 #include <limits.h>
 #include <immintrin.h> /* _mm_pause */
 
-#include "shamon/core/arbiter.h"
-#include "shamon/core/monitor.h"
-#include "shamon/core/utils.h"
-#include "shamon/streams/streams.h"
+#include "vamos-buffers/core/arbiter.h"
+#include "vamos-buffers/core/monitor.h"
+#include "vamos-buffers/core/utils.h"
+#include "vamos-buffers/streams/streams.h"
 
 #include "compiler/cfiles/compiler_utils.h"
 """

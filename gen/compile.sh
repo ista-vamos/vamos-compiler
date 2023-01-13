@@ -14,11 +14,11 @@ GENDIR=$(dirname $0)
 source $GENDIR/../config.sh
 
 CC=clang
-CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I${GENDIR} -I$shamon_INCLUDE_DIR\
-	   -I$shamon_INCLUDE_DIR/streams -I$shamon_INCLUDE_DIR/core\
-	   -I$shamon_INCLUDE_DIR/shmbuf -I$GENDIR/.."
+CPPFLAGS="-D_POSIX_C_SOURCE=200809L -I${GENDIR} -I$vamos_buffers_INCLUDE_DIR\
+	   -I$vamos_buffers_INCLUDE_DIR/streams -I$vamos_buffers_INCLUDE_DIR/core\
+	   -I$vamos_buffers_INCLUDE_DIR/shmbuf -I$GENDIR/.."
 LTOFLAGS=""
-if [ "$shamon_BUILD_TYPE" = "Debug" ]; then
+if [ "$vamos_buffers_BUILD_TYPE" = "Debug" ]; then
 	CFLAGS="-g -O0 -std=c11"
 else
 	CFLAGS="-g3 -O3 -std=c11"
@@ -29,18 +29,18 @@ else
 fi
 
 LDFLAGS=-lpthread
-LIBRARIES="$shamon_LIBRARIES_DIRS_core/libshamon-arbiter.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-stream.a\
-           $shamon_LIBRARIES_DIRS_shmbuf/libshamon-shmbuf.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-parallel-queue.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-ringbuf.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-event.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-source.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-signature.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-list.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-utils.a\
-           $shamon_LIBRARIES_DIRS_core/libshamon-monitor-buffer.a\
-           $shamon_LIBRARIES_DIRS_streams/libshamon-streams.a"
+LIBRARIES="$vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-arbiter.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-stream.a\
+           $vamos_buffers_LIBRARIES_DIRS_shmbuf/libvamos-buffers-shmbuf.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-parallel-queue.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-ringbuf.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-event.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-source.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-signature.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-list.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-utils.a\
+           $vamos_buffers_LIBRARIES_DIRS_core/libvamos-buffers-monitor-buffer.a\
+           $vamos_buffers_LIBRARIES_DIRS_streams/libvamos-buffers-streams.a"
 
 test -z $CC && CC=cc
 ${CC} $CFLAGS $LTOFLAGS $CPPFLAGS -o $CURDIR/monitor $MONITORSRC $@ $LIBRARIES $LDFLAGS #-DSHMBUF_ARBITER_BUFSIZE=$ARBITER_BUFSIZE

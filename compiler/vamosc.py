@@ -13,7 +13,7 @@ from compiler.cfile_utils import get_c_program
 from compiler.utils import *
 from compiler.tessla_utils import get_rust_file, get_c_interface, update_toml
 
-from config import shamon_LIBRARIES_DIRS_core, shamon_LIBRARIES_DIRS_shmbuf, shamon_LIBRARIES_DIRS_streams, shamon_INCLUDE_DIR
+from config import vamos_buffers_LIBRARIES_DIRS_core, vamos_buffers_LIBRARIES_DIRS_shmbuf, vamos_buffers_LIBRARIES_DIRS_streams, vamos_buffers_INCLUDE_DIR
 
 parser = argparse.ArgumentParser(prog="vamosc")
 parser.add_argument("inputfile", type=str, help="VAMOS program to compile.")
@@ -220,7 +220,7 @@ if args.legacy_mode is not True:
         output_file.write("set +x\n\n")
 
     output_file.write(f'SELFDIR="{ownpath}"\n')
-    output_file.write(f'SHAMON_INCLUDE_DIR="{shamon_INCLUDE_DIR}"\n')
+    output_file.write(f'SHAMON_INCLUDE_DIR="{vamos_buffers_INCLUDE_DIR}"\n')
 
     output_file.write("CC=clang\n")
     output_file.write(
@@ -239,18 +239,18 @@ if args.legacy_mode is not True:
         output_file.write('CPPFLAGS="$CPPFLAGS -DNDEBUG"\n\n')
 
     linklibraries = [
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-arbiter.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-stream.a",
-        f"{shamon_LIBRARIES_DIRS_shmbuf}/libshamon-shmbuf.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-parallel-queue.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-ringbuf.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-event.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-source.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-signature.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-list.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-utils.a",
-        f"{shamon_LIBRARIES_DIRS_core}/libshamon-monitor-buffer.a",
-        f"{shamon_LIBRARIES_DIRS_streams}/libshamon-streams.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-arbiter.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-stream.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_shmbuf}/libvamos-buffers-shmbuf.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-parallel-queue.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-ringbuf.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-event.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-source.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-signature.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-list.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-utils.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-monitor-buffer.a",
+        f"{vamos_buffers_LIBRARIES_DIRS_streams}/libvamos-buffers-streams.a",
          "$SELFDIR/compiler/cfiles/compiler_utils.o",
     ]
 
