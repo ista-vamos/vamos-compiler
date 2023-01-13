@@ -22,3 +22,8 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.py.in
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.sh.in
 	       ${CMAKE_CURRENT_SOURCE_DIR}/config.sh)
 
+if (NOT EXISTS compiler/tessla-rust.jar)
+	message(STATUS "Downloading TeSSLa jar")
+	file(DOWNLOAD "https://git.tessla.io/tessla/tessla/builds/artifacts/rust-compiler/raw/target/scala-2.13/tessla-assembly-1.2.3.jar?job=deploy" compiler/tessla-rust.jar
+	SHOW_PROGRESS)
+endif()
