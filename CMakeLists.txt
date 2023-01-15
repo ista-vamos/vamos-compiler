@@ -32,8 +32,14 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.py.in
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/config.sh.in
 	       ${CMAKE_CURRENT_SOURCE_DIR}/config.sh)
 
+OPTION(DOWNLOAD_TESSLA_RUST_JAR "Download TeSSLa .jar for compiling tessla monitors" OFF)
 if (NOT EXISTS compiler/tessla-rust.jar)
-	message(STATUS "Downloading TeSSLa jar")
-	file(DOWNLOAD "https://git.tessla.io/tessla/tessla/builds/artifacts/rust-compiler/raw/target/scala-2.13/tessla-assembly-1.2.3.jar?job=deploy" compiler/tessla-rust.jar
-	SHOW_PROGRESS)
+	if (DOWNLOAD_TESSLA_RUST_JAR)
+		message(STATUS "Downloading TeSSLa jar")
+		file(DOWNLOAD "https://git.tessla.io/tessla/tessla/builds/artifacts/rust-compiler/raw/target/scala-2.13/tessla-assembly-1.2.3.jar?job=deploy"
+			compiler/tessla-rust.jar SHOW_PROGRESS)
+	else()
+		message(WARNING "No 'compiler/tessla-rust.jar' found, compiling TeSSLa monitors will not work. "
+			"If you want to download this file, use -DDOWNLOAD_TESSLA_RUST_JAR=ON (or do it manually).")
+	endif()
 endif()
