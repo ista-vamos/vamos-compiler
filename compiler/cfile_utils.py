@@ -854,8 +854,7 @@ bool are_buffers_done() {"{"}
 {"}"}
     """
 
-
-def arbiter_code(tree, components):
+def arbiter_code(tree, components, existing_buffers, args):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
@@ -864,17 +863,38 @@ def arbiter_code(tree, components):
     rule_set_invocations = ""
     for name in rule_set_names:
         rule_set_invocations += (
-            f"\t\tif (!ARB_CHANGE_ && current_rule_set == SWITCH_TO_RULE_SET_{name}) {'{'} \n"
-            f"\t\t\tARB_CHANGE_ = RULE_SET_{name}();\n"
+            f"\t\tif (!ARBITER_MATCHED_ && current_rule_set == SWITCH_TO_RULE_SET_{name}) {'{'} \n"
+            f"\t\t\tARBITER_MATCHED_ |= RULE_SET_{name}();\n"
             f"\t\t{'}'}\n"
         )
 
+    N = int(args.freq)
+    sleep_time_ns = max(1, min(10000, int((10**6)/N)))
     if len(rule_set_names) > 0:
         return f"""int arbiter() {"{"}
 
         while (!are_streams_done()) {"{"}
-            ARB_CHANGE_ = false;
-    {rule_set_invocations}
+            ARBITER_MATCHED_ = false;
+            ARBITER_DROPPED_ = false;
+
+            {rule_set_invocations}
+
+            if (ARBITER_MATCHED_ && !ARBITER_DROPPED_) {{
+                if (++match_and_no_drop_num >= {20*N}) {{
+                    if (match_and_no_drop_num == {20*N}) {{
+                        fprintf(stderr, \"WARNING: arbiter matched {20*N} times without consuming an event, that might suggest a problem\\n\");
+                    }}
+
+                    /* do not burn CPU as we might expect another void iteration */
+                    sleep_ns({sleep_time_ns});
+
+                    if (++match_and_no_drop_num > {30*N}) {{
+                        fprintf(stderr, \"WARNING: arbiter matched {30*N} times without consuming an event\\n\");
+                        match_and_no_drop_num = 0;
+                        {dump_buffer_groups_code(tree, existing_buffers, args)}
+                    }}
+                }}
+            }}
         {"}"}
         shm_monitor_set_finished(monitor_buffer);
         return 0;
@@ -1081,7 +1101,7 @@ def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
         event_source_name = event_source_ref[1]
         if event_source_ref[2] is not None:
             event_source_name += f"{event_source_ref[2]}"
-        return f"\tshm_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]});\n"
+        return f"\tshm_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]}); ARBITER_DROPPED_ = true;\n"
     if tree[0] == "remove":
         buffer_group = tree[2][1]
         return f"mtx_lock(&LOCK_{buffer_group});\nbg_remove(&BG_{buffer_group}, {tree[1]});\nmtx_unlock(&LOCK_{buffer_group});\n"
@@ -1406,7 +1426,7 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
                 assert len(stream_drops.keys()) > 0
                 for (stream, count) in stream_drops.items():
                     stream_drops_code += (
-                        f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count});\n"
+                        f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
                     )
             inner_code = f"""
             {define_binded_args(binded_args, stream_types)}
@@ -1550,15 +1570,20 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
     N = int(args.freq)
     # ns are 10^9 but we divide the number by 10^4 to have enough time to perform
     # instructions around and have some space for fluctuations
-    sleep_time_ns = (1 / float(N))*(10**5)
-    sleep_code = f"sleep_ns({sleep_time_ns})" if sleep_time_ns > 5 else "_mm_pause()"
+    MAX_SLEEP_TIME_NS = 10000000
+    sleep_time_ns = min(max(1, int((1 / float(N))*(10**5))), MAX_SLEEP_TIME_NS)
 
-    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > {5*N}) {{\
+    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > {10*N}) {{\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) _mm_pause();\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt > {10*N} &&\
-                    RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) {sleep_code};\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt > {12*N}) {sleep_code};\
-                if (RULE_SET_{rule_set_name}_nomatch_cnt > {13*N}) {{\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {13*N}) _mm_pause();\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {14*N}) _mm_pause();\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {15*N}) _mm_pause();\
+                size_t sleep_time = {sleep_time_ns};\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {16*N}) sleep_time += ({5*sleep_time_ns});\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {18*N}) sleep_time += ({10*sleep_time_ns});\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {19*N}) sleep_time += ({20*sleep_time_ns});\
+                sleep_ns(sleep_time);\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt > {20*N}) {{\
                     RULE_SET_{rule_set_name}_nomatch_cnt = 0;"
     answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles long time without progress\\033[0m\\n\");"
     for (ev_source, data) in TypeChecker.event_sources_data.items():
@@ -1587,6 +1612,46 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
     answer += "}}\n"
 
     return answer
+
+
+def dump_buffer_groups_code(tree, existing_buffers, args):
+    answer = "void *e1, *e2;\nsize_t i1, i2;\n"
+    buffers_to_peek = (
+        dict()
+    )  # maps buffer_name to the number of elements we want to retrieve from the buffer
+    get_buffers_and_peeks(tree, buffers_to_peek, TypeChecker, existing_buffers)
+
+    buffer_to_src_idx = {bn: -1 for bn in existing_buffers}
+    for (event_source_index, stream_type) in enumerate(
+        TypeChecker.stream_types_data.keys()
+    ):
+        buffer_to_src_idx[stream_type] = event_source_index
+
+    for (ev_source, data) in TypeChecker.event_sources_data.items():
+
+        src_idx = buffer_to_src_idx[data["output_stream_type"]]
+        if data["copies"]:
+            for i in range(data["copies"]):
+                buffer_name = ev_source + str(i)
+                if buffer_name in buffers_to_peek.keys():
+                    answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                    answer += f"\tint count_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                    answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
+        else:
+            buffer_name = ev_source
+            if buffer_name in buffers_to_peek.keys():
+                answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
+                answer += f"\tint count_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
+    for (buffer_group, data) in TypeChecker.buffer_group_data.items():
+        answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
+        answer += f'printf("***** {buffer_group} *****\\n");\n'
+        answer += f"dll_node *current = BG_{buffer_group}.head;\n"
+        answer += f"{'{'}int i = 0; \n while (current){'{'} {print_dll_node_code(buffer_group, buffer_to_src_idx)} current = current->next;\n i+=1;\n{'}'}\n{'}'}"
+    return answer
+
+
+
 
 
 def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, args):
@@ -2023,7 +2088,10 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
 
 {instantiate_stream_args()}
 int arbiter_counter;
-bool ARB_CHANGE_ = false;
+static bool ARBITER_MATCHED_ = false;
+static bool ARBITER_DROPPED_ = false;
+static size_t match_and_no_drop_num = 0;
+
 // monitor buffer
 shm_monitor_buffer *monitor_buffer;
 
@@ -2084,7 +2152,7 @@ void done() {{
 
 static inline bool are_streams_done() {"{"}
     assert(count_event_streams >=0);
-    return (count_event_streams == 0 && are_buffers_done() && !ARB_CHANGE_) || __work_done;
+    return (count_event_streams == 0 && are_buffers_done() && !ARBITER_MATCHED_) || __work_done;
 {"}"}
 
 static inline bool is_buffer_done(shm_arbiter_buffer *b) {"{"}
@@ -2205,7 +2273,7 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {get_event_at_head()}
 {print_buffers_state()}
 {build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, args)}
-{arbiter_code(ast[2], components)}
+{arbiter_code(ast[2], components, existing_buffers, args)}
 
 {define_signal_handlers(components["event_source"])}
 

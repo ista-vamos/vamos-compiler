@@ -775,7 +775,7 @@ def get_buffers_and_peeks(
                 list_buff_match, type_checker, result, existing_buffers
             )
         else:
-            assert tree[0] == "arbiter_rule2"
+            #assert tree[0] == "arbiter_rule2"
             get_buffers_and_peeks(tree[-1], result, type_checker, existing_buffers)
 
 
