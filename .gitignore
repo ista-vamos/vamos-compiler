@@ -127,3 +127,12 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+config.py
+config.sh
+Makefile
+
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compiler/tessla-rust.jar
