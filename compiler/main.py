@@ -34,7 +34,9 @@ parser.add_argument(
 parser.add_argument(
     "-freq",
     "--freq",
-    type=int, metavar="N", default=50000,
+    type=int,
+    metavar="N",
+    default=50000,
     help="Expected frequency of incoming events (N per second, deafult=50000)",
 )
 
@@ -154,7 +156,7 @@ else:
         stream_types,
         arbiter_event_source,
         existing_buffers,
-        args
+        args,
     )
     output_file = open(output_path, "w")
     output_file.write(program)

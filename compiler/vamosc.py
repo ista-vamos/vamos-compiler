@@ -13,7 +13,12 @@ from compiler.cfile_utils import get_c_program
 from compiler.utils import *
 from compiler.tessla_utils import get_rust_file, get_c_interface, update_toml
 
-from config import vamos_buffers_LIBRARIES_DIRS_core, vamos_buffers_LIBRARIES_DIRS_shmbuf, vamos_buffers_LIBRARIES_DIRS_streams, vamos_buffers_INCLUDE_DIR
+from config import (
+    vamos_buffers_LIBRARIES_DIRS_core,
+    vamos_buffers_LIBRARIES_DIRS_shmbuf,
+    vamos_buffers_LIBRARIES_DIRS_streams,
+    vamos_buffers_INCLUDE_DIR,
+)
 
 parser = argparse.ArgumentParser(prog="vamosc")
 parser.add_argument("inputfile", type=str, help="VAMOS program to compile.")
@@ -24,7 +29,10 @@ parser.add_argument(
     help="Legacy mode: only generate C file with monitor code (plus TeSSLa interface where applicable).",
 )
 parser.add_argument(
-    "-o", "--out", help="Output file for monitor C code.", default="/tmp/vamos_monitor.c"
+    "-o",
+    "--out",
+    help="Output file for monitor C code.",
+    default="/tmp/vamos_monitor.c",
 )
 parser.add_argument(
     "-e", "--executable", help="Path of the executable to generate.", default="monitor"
@@ -251,7 +259,7 @@ if args.legacy_mode is not True:
         f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-utils.a",
         f"{vamos_buffers_LIBRARIES_DIRS_core}/libvamos-buffers-monitor-buffer.a",
         f"{vamos_buffers_LIBRARIES_DIRS_streams}/libvamos-buffers-streams.a",
-         "$SELFDIR/compiler/cfiles/compiler_utils.o",
+        "$SELFDIR/compiler/cfiles/compiler_utils.o",
     ]
 
     if args.link is not None:
@@ -277,7 +285,9 @@ if args.legacy_mode is not True:
         output_file.write(f"cd $CURPATH\n\n")
 
     output_file.write("test -z $CC && CC=cc\n")
-    output_file.write("${CC} -I$SHAMON_INCLUDE_DIR -c $CFLAGS $SELFDIR/compiler/cfiles/compiler_utils.c -o $SELFDIR/compiler/cfiles/compiler_utils.o\n")
+    output_file.write(
+        "${CC} -I$SHAMON_INCLUDE_DIR -c $CFLAGS $SELFDIR/compiler/cfiles/compiler_utils.c -o $SELFDIR/compiler/cfiles/compiler_utils.o\n"
+    )
     output_file.write(
         "${CC} $CFLAGS $LTOFLAGS $CPPFLAGS -o $EXECUTABLEPATH $CFILEPATH $@ $LIBRARIES $LDFLAGS\n"
     )

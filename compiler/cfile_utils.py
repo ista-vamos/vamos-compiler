@@ -854,6 +854,7 @@ bool are_buffers_done() {"{"}
 {"}"}
     """
 
+
 def arbiter_code(tree, components, existing_buffers, args):
     assert tree[0] == "arbiter_def"
 
@@ -869,7 +870,7 @@ def arbiter_code(tree, components, existing_buffers, args):
         )
 
     N = int(args.freq)
-    sleep_time_ns = max(1, min(10000, int((10**6)/N)))
+    sleep_time_ns = max(1, min(10000, int((10**6) / N)))
     if len(rule_set_names) > 0:
         return f"""int arbiter() {"{"}
 
@@ -1425,9 +1426,7 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
             if len(stream_drops.keys()) != 0:
                 assert len(stream_drops.keys()) > 0
                 for (stream, count) in stream_drops.items():
-                    stream_drops_code += (
-                        f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
-                    )
+                    stream_drops_code += f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
             inner_code = f"""
             {define_binded_args(binded_args, stream_types)}
            
@@ -1571,7 +1570,7 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
     # ns are 10^9 but we divide the number by 10^4 to have enough time to perform
     # instructions around and have some space for fluctuations
     MAX_SLEEP_TIME_NS = 10000000
-    sleep_time_ns = min(max(1, int((1 / float(N))*(10**5))), MAX_SLEEP_TIME_NS)
+    sleep_time_ns = min(max(1, int((1 / float(N)) * (10**5))), MAX_SLEEP_TIME_NS)
 
     answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > {10*N}) {{\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) _mm_pause();\
@@ -1649,9 +1648,6 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
         answer += f"dll_node *current = BG_{buffer_group}.head;\n"
         answer += f"{'{'}int i = 0; \n while (current){'{'} {print_dll_node_code(buffer_group, buffer_to_src_idx)} current = current->next;\n i+=1;\n{'}'}\n{'}'}"
     return answer
-
-
-
 
 
 def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, args):
@@ -2037,7 +2033,7 @@ def outside_main_code(
     ast,
     arbiter_event_source,
     existing_buffers,
-    args
+    args,
 ):
     return f"""
 
@@ -2304,7 +2300,7 @@ def get_c_program(
     stream_types,
     arbiter_event_source,
     existing_buffers,
-    args
+    args,
 ):
     program = f"""
 
