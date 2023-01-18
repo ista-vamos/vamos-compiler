@@ -879,7 +879,7 @@ def arbiter_code(tree, components, existing_buffers, args):
 
             {rule_set_invocations}
 
-            if (ARBITER_MATCHED_ && !ARBITER_DROPPED_) {{
+            if (!ARBITER_DROPPED_ && ARBITER_MATCHED_) {{
                 if (++match_and_no_drop_num >= {20*N}) {{
                     if (match_and_no_drop_num == {20*N}) {{
                         fprintf(stderr, \"WARNING: arbiter matched {20*N} times without consuming an event, that might suggest a problem\\n\");
