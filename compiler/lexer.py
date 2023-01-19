@@ -161,6 +161,7 @@ class MyLexer(object):
         "globals": "GLOBALS",
         "startup": "STARTUP",
         "cleanup": "CLEANUP",
+        "loopdebug": "LOOPDEBUG",
         "processor": "PROCESSOR",
         "include": "INCLUDE",
         "includes": "INCLUDES",

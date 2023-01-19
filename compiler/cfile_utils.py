@@ -19,7 +19,7 @@ def get_pure_c_code(component, token) -> str:
     answer = ""
     if token in component.keys():
         for tree in component[token]:
-            assert tree[0] == "startup" or tree[0] == "cleanup"
+            assert tree[0] == "startup" or tree[0] == "cleanup" or tree[0] == "loopdebug"
             answer += tree[1]
     return answer
 
@@ -893,6 +893,7 @@ def arbiter_code(tree, components, existing_buffers, args):
                         fprintf(stderr, \"\\033[31mWARNING: arbiter matched {30*N} times without consuming an event!\\033[0m\\n\");
                         match_and_no_drop_num = 0;
                         {dump_buffer_groups_code(tree, existing_buffers, args)}
+                        {get_pure_c_code(components, 'loopdebug')}
                     }}
                 }}
             }}
@@ -1522,7 +1523,7 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
 """
 
 
-def check_progress(rule_set_name, tree, existing_buffers, args):
+def check_progress(rule_set_name, tree, existing_buffers, components, args):
     buffers_to_peek = (
         dict()
     )  # maps buffer_name to the number of elements we want to retrieve from the buffer
@@ -1610,6 +1611,7 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
         answer += f"{'{'}int i = 0; \n while (current){'{'} {print_dll_node_code(buffer_group, buffer_to_src_idx)} current = current->next;\n i+=1;\n{'}'}\n{'}'}"
 
     answer += 'fprintf(stderr, "Seems all rules are waiting for some events that are not coming\\n");'
+    answer += get_pure_c_code(components, 'loopdebug')
     answer += "}}\n"
 
     return answer
@@ -1652,7 +1654,7 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
     return answer
 
 
-def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, args):
+def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, components, args):
     def local_explore_rule_list(local_tree) -> str:
         if local_tree[0] == "arb_rule_list":
             return local_explore_rule_list(local_tree[1]) + local_explore_rule_list(
@@ -1679,7 +1681,7 @@ def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, args
                     f"int RULE_SET_{rule_set_name}() {'{'}\n"
                     f"{buffer_peeks(local_tree[2], existing_buffers)}"
                     f"{local_explore_rule_list(local_tree[2])}"
-                    f"{check_progress(rule_set_name, local_tree[2], existing_buffers, args)}"
+                    f"{check_progress(rule_set_name, local_tree[2], existing_buffers, components, args)}"
                     f"{TypeChecker.always_code}"
                     f"\treturn 0;\n"
                     f"{'}'}"
@@ -2270,7 +2272,7 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {print_event_name(stream_types, streams_to_events_map)}
 {get_event_at_head()}
 {print_buffers_state()}
-{build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, args)}
+{build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, components, args)}
 {arbiter_code(ast[2], components, existing_buffers, args)}
 
 {define_signal_handlers(components["event_source"])}

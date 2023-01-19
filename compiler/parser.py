@@ -41,9 +41,11 @@ def p_component(p):
               | STARTUP BEGIN_CCODE CCODE_TOKEN
               | CLEANUP '{' CCODE_TOKEN '}'
               | CLEANUP BEGIN_CCODE CCODE_TOKEN
+              | LOOPDEBUG '{' CCODE_TOKEN '}'
+              | LOOPDEBUG BEGIN_CCODE CCODE_TOKEN
     """
 
-    if p[1] not in ["globals", "startup", "cleanup"]:
+    if p[1] not in ["globals", "startup", "cleanup", "loopdebug"]:
         p[0] = p[1]
     else:
         if len(p) == 3:
