@@ -865,7 +865,7 @@ def arbiter_code(tree, components, existing_buffers, args):
     for name in rule_set_names:
         rule_set_invocations += (
             f"\t\tif (!ARBITER_MATCHED_ && current_rule_set == SWITCH_TO_RULE_SET_{name}) {'{'} \n"
-            f"\t\t\tARBITER_MATCHED_ |= RULE_SET_{name}();\n"
+            f"\t\t\tif (RULE_SET_{name}()) {{ ARBITER_MATCHED_= true; RULE_SET_{name}_nomatch_cnt = 0; }}\n"
             f"\t\t{'}'}\n"
         )
 
