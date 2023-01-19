@@ -862,7 +862,7 @@ def p_order_expr(p):
     """
     if len(p) == 3:
         p[0] = ("order_expr", "round-robin")
-    if p[1] == "$":
+    elif p[1] == "$":
         p[0] = ("order_expr", p[2])
     else:
         assert len(p) == 2
