@@ -890,7 +890,7 @@ def arbiter_code(tree, components, existing_buffers, args):
                     sleep_ns({sleep_time_ns});
 
                     if (++match_and_no_drop_num > {30*N}) {{
-                        fprintf(stderr, \"WARNING: arbiter matched {30*N} times without consuming an event\\n\");
+                        fprintf(stderr, \"\\033[31mWARNING: arbiter matched {30*N} times without consuming an event!\\033[0m\\n\");
                         match_and_no_drop_num = 0;
                         {dump_buffer_groups_code(tree, existing_buffers, args)}
                     }}
@@ -1572,7 +1572,9 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
     MAX_SLEEP_TIME_NS = 10000000
     sleep_time_ns = min(max(1, int((1 / float(N)) * (10**5))), MAX_SLEEP_TIME_NS)
 
-    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt > {10*N}) {{\
+    answer += f"if (++RULE_SET_{rule_set_name}_nomatch_cnt >= {10*N}) {{\
+                if (RULE_SET_{rule_set_name}_nomatch_cnt == {10*N})\
+                    fprintf(stderr, \"Rule set '{rule_set_name}' cycles long time without progress...\\n\");\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt % {int(N/10)} == 0) _mm_pause();\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt > {13*N}) _mm_pause();\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt > {14*N}) _mm_pause();\
@@ -1584,7 +1586,7 @@ def check_progress(rule_set_name, tree, existing_buffers, args):
                 sleep_ns(sleep_time);\
                 if (RULE_SET_{rule_set_name}_nomatch_cnt > {20*N}) {{\
                     RULE_SET_{rule_set_name}_nomatch_cnt = 0;"
-    answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles long time without progress\\033[0m\\n\");"
+    answer += f"\tfprintf(stderr, \"\\033[31mRule set '{rule_set_name}' cycles really long time without progress\\033[0m\\n\");"
     for (ev_source, data) in TypeChecker.event_sources_data.items():
 
         src_idx = buffer_to_src_idx[data["output_stream_type"]]
