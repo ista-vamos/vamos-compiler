@@ -1618,7 +1618,7 @@ def check_progress(rule_set_name, tree, existing_buffers, components, args):
 
 
 def dump_buffer_groups_code(tree, existing_buffers, args):
-    answer = "void *e1, *e2;\nsize_t i1, i2;\n"
+    answer = "void *e1, *e2;\nsize_t i1, i2;\nint count_;\n"
     buffers_to_peek = (
         dict()
     )  # maps buffer_name to the number of elements we want to retrieve from the buffer
@@ -1638,13 +1638,13 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tint count_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                    answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tint count_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
         answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
