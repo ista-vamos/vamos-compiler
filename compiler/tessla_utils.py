@@ -262,11 +262,12 @@ def get_c_interface(
     stream_types,
     arbiter_event_source,
     existing_buffers,
+    args
 ) -> str:
     return f"""
 {get_imports()}
 
-{outside_main_code(components, streams_to_events_map, stream_types, ast, arbiter_event_source, existing_buffers)}
+{outside_main_code(components, streams_to_events_map, stream_types, ast, arbiter_event_source, existing_buffers, args)}
 {declare_extern_functions(streams_to_events_map, arbiter_event_source)}
 int main(int argc, char **argv) {"{"}
     setup_signals();

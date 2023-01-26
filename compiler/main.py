@@ -113,6 +113,7 @@ if args.with_tessla:
         stream_types,
         arbiter_event_source,
         existing_buffers,
+        args
     )
     file = open(output_path, "w")
     file.write(c_interface)
