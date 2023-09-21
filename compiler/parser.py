@@ -22,9 +22,11 @@ def p_components(p):
     """
 
     if len(p) == 2:
+        # we are dealing with the case '| component'
         p[0] = p[1]
     else:
         assert len(p) == 3
+        # we are dealing with case 'component components'
         p[0] = ("components", p[1], p[2])
 
 
@@ -46,11 +48,43 @@ def p_component(p):
     """
 
     if p[1] not in ["globals", "startup", "cleanup", "loopdebug"]:
+        ''' We are dealing with one of these cases
+                stream_type
+              | event_source
+              | stream_processor
+              | buff_group_def
+              | match_fun_def
+        '''
         p[0] = p[1]
     else:
+        '''
+        We are dealing with one of these cases:
+            | GLOBALS '{' arbiter_rule_stmt_list '}'
+            | GLOBALS BEGIN_CCODE arbiter_rule_stmt_list
+            | STARTUP '{' CCODE_TOKEN '}'
+            | STARTUP BEGIN_CCODE CCODE_TOKEN
+            | CLEANUP '{' CCODE_TOKEN '}'
+            | CLEANUP BEGIN_CCODE CCODE_TOKEN
+            | LOOPDEBUG '{' CCODE_TOKEN '}'
+            | LOOPDEBUG BEGIN_CCODE CCODE_TOKEN
+        '''
         if len(p) == 3:
+            '''we are dealing with one of these cases
+                | GLOBALS '{' arbiter_rule_stmt_list '}'
+                | STARTUP '{' CCODE_TOKEN '}'
+                | CLEANUP '{' CCODE_TOKEN '}'
+                | LOOPDEBUG '{' CCODE_TOKEN '}'
+            '''
             p[0] = (p[1], p[2])
         else:
+            '''
+            We are dealing with one of these cases:
+                | GLOBALS BEGIN_CCODE arbiter_rule_stmt_list
+                | STARTUP BEGIN_CCODE CCODE_TOKEN
+                | CLEANUP BEGIN_CCODE CCODE_TOKEN
+                | LOOPDEBUG BEGIN_CCODE CCODE_TOKEN
+            '''
+            assert len(p) == 4
             p[0] = (p[1], p[3])
 
 
@@ -89,9 +123,9 @@ def p_stream_type(p):
     p[0] = ("stream_type", stream_name, field_declarations, extends_node, events_list)
     params = []
     if field_declarations is not None:
+        # get params from field_declarations
         get_parameters_types_field_decl(field_declarations, params)
-    TypeChecker.insert_into_args_table(stream_name, STREAM_TYPE_NAME, params)
-
+    TypeChecker.insert_into_args_table(stream_name, STREAM_TYPE_NAME, params) # set the params that this stream needs
     TypeChecker.insert_event_list(stream_name, events_list)
 
 
@@ -101,10 +135,10 @@ def p_event_declaration_list(p):
                | event_decl ';' event_list
     """
     if len(p) == 3:
-        p[0] = p[PLIST_BASE_CASE]
+        p[0] = p[1]
     else:
         assert len(p) == 4
-        p[0] = ("event_list", p[PLIST_BASE_CASE], p[PLIST_TAIL_WITH_SEP])
+        p[0] = ("event_list", p[1], p[3])
 
 
 def p_event_declaration(p):
@@ -119,16 +153,22 @@ def p_event_declaration(p):
     creates_stream = None
     params = []
     if len(p) == 5 or len(p) == 7:
-        event_params_token = p[PEVENT_PARAMS_LIST]
-        get_parameters_types_field_decl(p[PEVENT_PARAMS_LIST], params)
+        '''we are dealing with these cases:
+            ID '(' list_field_decl ')'
+            | ID '(' list_field_decl ')' CREATES ID
+        '''
+        event_params_token = p[3]
+        get_parameters_types_field_decl(p[3], params)
     if len(p) == 7:
-        creates_stream = p[6]
+        # | ID '(' list_field_decl ')' CREATES ID
+        creates_stream = p[6] # ID is at p[6]
     elif len(p) == 6:
-        creates_stream = p[5]
+        # | ID '(' ')' CREATES ID
+        creates_stream = p[5] # ID is at p[5]
 
     # Type checker
     # TypeChecker.insert_into_args_table(p[PEVENT_NAME], EVENT_NAME, params)
-    p[0] = ("event_decl", p[PEVENT_NAME], event_params_token, creates_stream)
+    p[0] = ("event_decl", p[1], event_params_token, creates_stream) # the event name is at p[1]
 
 
 def p_field_declaration_list(p):
@@ -137,17 +177,19 @@ def p_field_declaration_list(p):
                     | field_decl ',' list_field_decl
     """
     if len(p) == 2:
-        p[0] = p[PLIST_BASE_CASE]
+        # we deal with the case: field_decl
+        p[0] = p[1]
     else:
+        # we deal with the case: | field_decl ',' list_field_decl
         assert len(p) == 4
-        p[0] = ("list_field_decl", p[PLIST_BASE_CASE], p[PLIST_TAIL_WITH_SEP])
+        p[0] = ("list_field_decl", p[1], p[3])
 
 
 def p_field_declaration(p):
     """
     field_decl : ID ':' type
     """
-    p[0] = ("field_decl", p[PFIELD_NAME], p[PFIELD_TYPE])
+    p[0] = ("field_decl", p[1], p[3])
 
 
 # END event streams
@@ -220,7 +262,8 @@ def p_processor_rule_list(p):
         p[0] = p[1]
     else:
         assert len(p) == 4
-        p[0] = ("perf_layer_list", p[PLIST_BASE_CASE], p[3])
+        # we are in this rule: | processor_rule ';' processor_rule_list
+        p[0] = ("perf_layer_list", p[1], p[3])
 
 
 def p_custom_hole(p):
@@ -239,6 +282,7 @@ def p_list_hole_attributes(p):
     if len(p) == 3:
         p[0] = p[1]
     else:
+        # we are in this case hole_attribute ';' list_hole_attributes
         p[0] = ("l-hole-attributes", p[1], p[3])
 
 
@@ -277,6 +321,7 @@ def p_list_events_hole(p):
         p[0] = p[1]
     else:
         assert len(p) == 4
+        # we are in this case:  | event_hole ',' list_events_hole
         p[0] = ("l-events-hole", p[1], p[3])
 
 
@@ -306,7 +351,7 @@ def p_processor_rule(p):
         performance_match = p[3]
     else:
         assert len(p) == 7
-
+        # we are in this case | ON name_with_args creates_part process_using_part processor_rule_tail performance_match
         creates_part = p[3]
         assert creates_part[0] == "creates-part"
         creates_at_most = creates_part[1]
@@ -371,7 +416,8 @@ def p_processor_rule_tail(p):
     conn_kind = p[2]
     include_in = None
     if len(p) > 3:
-        include_in = p[5]
+        # | TO connection_kind INCLUDE IN ID
+        include_in = p[5] # p[5] = ID
     p[0] = ("proc-rule-tail", conn_kind, include_in)
 
 
@@ -381,16 +427,16 @@ def p_performance_match(p):
                       | IF '(' expression ')' THEN performance_match ELSE performance_match
     """
     if len(p) == 2:
-        p[0] = ("perf_match1", p[PPERF_MATCH_ACTION])
+        p[0] = ("perf_match1", p[1])
     else:
         # IF ( expression ) THEN performance_match ELSE performance_match
         # 1  2      3     4   5          6           7          8
         assert len(p) == 8
         p[0] = (
             "perf_match2",
-            p[PPERF_MATCH_EXPRESSION],
-            p[PPERF_MATCH_TRUE_PART],
-            p[PPERF_MATCH_FALSE_PART],
+            p[3],
+            p[6],
+            p[8],
         )
 
 
@@ -402,18 +448,20 @@ def p_performance_action(p):
     """
     if len(p) == 2:
         if p[1] == "drop":
-            p[0] = ("perf_act_drop", p[PPERF_ACTION_DROP])
+            p[0] = ("perf_act_drop", p[1])
         else:
             assert p[1] == "forward"
-            p[0] = ("perf_act_forward", p[PPERF_ACTION_DROP])
+            p[0] = ("perf_act_forward", p[1])
     else:
-        TypeChecker.assert_symbol_type(p[PPERF_ACTION_FORWARD_EVENT], EVENT_NAME)
-        length_exprs = get_count_list_expr(p[PPERF_ACTION_FORWARD_EXPRS])
-        TypeChecker.assert_num_args_match(p[PPERF_ACTION_FORWARD_EVENT], length_exprs)
+        expression_list = p[4]
+        ID = p[2]
+        TypeChecker.assert_symbol_type(ID, EVENT_NAME)
+        length_exprs = get_count_list_expr(expression_list) # compute the number of expressions in this list
+        TypeChecker.assert_num_args_match(ID, length_exprs) # assert we are passing the right number of arguments
         p[0] = (
             "perf_act_forward",
-            p[PPERF_ACTION_FORWARD_EVENT],
-            p[PPERF_ACTION_FORWARD_EXPRS],
+            ID,
+            expression_list,
         )
 
 
@@ -425,10 +473,12 @@ def p_event_source(p):
 
     is_dynamic = False
     if len(p) == 7:
+        # | EVENT SOURCE event_source_decl ':' name_with_args event_source_tail
         event_src_declaration = p[3]
         stream = p[5]
         event_src_tail = p[6]
     else:
+        # DYNAMIC EVENT SOURCE event_source_decl ':' name_with_args  event_source_tail
         assert len(p) == 8
         is_dynamic = True
         event_src_declaration = p[4]
@@ -436,7 +486,7 @@ def p_event_source(p):
         event_src_tail = p[7]
 
     p[0] = ("event_source", is_dynamic, event_src_declaration, stream, event_src_tail)
-    stream, c_stream_args = get_name_args_count(stream)
+    # stream, _ = get_name_args_count(stream)
     # TypeChecker.assert_num_args_match(stream, c_stream_args)
     # TODO: check type of stream type?
 
@@ -450,11 +500,12 @@ def p_event_source_decl(p):
     arg = None
 
     if len(p) == 5:
+        # | name_with_args '[' INT ']'
         arg = p[3]
     else:
         assert len(p) == 2
     p[0] = ("event-decl", event, arg)
-    name, args = get_name_with_args(event)
+    name, args = get_name_with_args(event) # parse name_with_args
     TypeChecker.insert_into_args_table(name, EVENT_SOURCE_NAME, args)
 
 
@@ -466,10 +517,11 @@ def p_event_source_tail(p):
     process_using = None
 
     if len(p) == 2:
+        # | ev_src_include_part
         ev_src_include_part = p[1]
     else:
         ev_src_include_part = p[4]
-        process_using = p[3]
+        process_using = p[3] # name_with_args
     connection_kind = ev_src_include_part[1]
     include_in = ev_src_include_part[2]
     p[0] = ("ev-source-tail", process_using, connection_kind, include_in)
@@ -487,10 +539,10 @@ def p_ev_src_include_part(p):
                         | TO connection_kind INCLUDE IN ID
     """
 
-    conn_kind = p[2]
+    conn_kind = p[2] # connection_kind
     include_in = None
     if len(p) > 3:
-        include_in = p[5]
+        include_in = p[5] # ID
     p[0] = ("ev_src_inc_part", conn_kind, include_in)
 
 
@@ -502,13 +554,16 @@ def p_connection_kind(p):
                     | INFINITE
     """
     if len(p) == 2:
-        p[0] = ("conn_kind", p[PCONN_KIND_NAME], None)
+        # INFINITE
+        p[0] = ("conn_kind", p[1], None)
     elif len(p) == 7:
         # AUTODROP '(' INT ',' INT ')'
         #    1      2   3   4   5   6
-        p[0] = ("conn_kind", p[PCONN_KIND_NAME], p[PCONN_KIND_INT], p[5])
+        p[0] = ("conn_kind", p[1], p[3], p[5])
     else:
-        p[0] = ("conn_kind", p[PCONN_KIND_NAME], p[PCONN_KIND_INT])
+        #  AUTODROP '(' INT ')'
+        # | BLOCKING '(' INT ')'
+        p[0] = ("conn_kind", p[1], p[3])
 
 
 # END performance layer specifications
@@ -521,18 +576,20 @@ def p_buff_group_def(p):
                    | BUFFER GROUP ID ':' ID ORDER BY order_expr
                    | BUFFER GROUP ID ':' ID
     """
-    buffer_group_name = p[3]
-    stream_type = p[5]
+    buffer_group_name = p[3] # ID
+    stream_type = p[5] # ID (the one after ':')
     includes = None
     arg_includes = None
     order_by = None
     if len(p) > 6:
         if p[6] == "order":
-            order_by = p[8]
+            order_by = p[8] # order_expr
             if len(p) > 11:
+                # BUFFER GROUP ID ':' ID ORDER BY order_expr INCLUDES ID '[' int_or_all ']'
                 includes = p[10]
                 arg_includes = p[12]
         else:
+            # | BUFFER GROUP ID ':' ID INCLUDES ID '[' int_or_all ']'
             assert p[6] == "include"
             includes = p[7]
             arg_includes = p[9]
@@ -613,6 +670,7 @@ def p_arbiter_definition(p):
 
     # TypeChecker.assert_symbol_type(p[ARBITER_OUTPUT_TYPE], STREAM_TYPE_NAME)
     if len(p) == 6:
+        # | ARBITER ':' ID '{' '}'
         p[0] = ("arbiter_def", p[ARBITER_OUTPUT_TYPE], None)
     else:
         if (
