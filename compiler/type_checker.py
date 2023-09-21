@@ -5,25 +5,13 @@ from tokens import reserved
 from utils import *
 
 # define some types:
-VARIABLE = "variable"
 RESERVED = "reserved"
-# FIELD_NAME = "field_name" # we do not need this type
 EVENT_NAME = "event_name"
-STREAM_TYPE_NAME = "stream_type_name"
 EVENT_SOURCE_NAME = "event_source_name"
-ARBITER_RULE_SET = "arbiter_rule_set"
 STREAM_PROCESSOR_NAME = "stream_processor_name"
-BUFFER_GROUP_NAME = "buffer_group_name"
+STREAM_TYPE_NAME = "stream_type"
 MATCH_FUN_NAME = "match_fun_name"
-
-"""
-TODO: 
-- event, stream type, and event source names are unique
-- event sources only refer to stream types that use base types
-- the arbiter refers to some valid stream type
-- on/yield/forward constructions only refer to events and event sources that are 
-- valid (including events being part of the stream type of the respective event source/the output stream type of the arbiter), and for events use the right number of arguments
-"""
+ARBITER_RULE_SET = "arbiter_rule_set"
 
 
 class TypeChecker:
@@ -161,11 +149,6 @@ class TypeChecker:
             )
 
     @staticmethod
-    def check_args_are_primitive(symbol: str):
-        if not TypeChecker.stream_events_are_primitive[symbol]:
-            raise Exception("Calling function that has a non-primitive type parameter")
-
-    @staticmethod
     def insert_event_list(symbol, event_list_tree):
         assert symbol in TypeChecker.symbol_table.keys()
         TypeChecker.stream_events_are_primitive[symbol] = are_all_events_decl_primitive(
@@ -180,7 +163,8 @@ class TypeChecker:
 
     @staticmethod
     def check_performance_match(ast, output_type):
-        if ast[0] == "perf_match2":
+        if ast[0] == "perf_match2": 
+            # IF '(' expression ')' THEN performance_match ELSE performance_match
             TypeChecker.check_performance_match(
                 ast[PPPERF_MATCH_TRUE_PART], output_type
             )
@@ -188,7 +172,7 @@ class TypeChecker:
                 ast[PPPERF_MATCH_FALSE_PART], output_type
             )
         else:
-            assert ast[0] == "perf_match1"
+            assert ast[0] == "perf_match1" # performance_action
             perf_action = ast[PPPERF_MATCH_ACTION]
             output_event = perf_action[PPPERF_ACTION_FORWARD_EVENT]
             if not TypeChecker.is_event_in_stream(output_type, output_event):
@@ -237,75 +221,6 @@ class TypeChecker:
                 raise Exception(
                     f"Event source {stream_name} does not considers event {event}"
                 )
-
-    @staticmethod
-    def check_arb_rule_stmt_list(ast, output_type):
-        if ast[0] == "arb_rule_stmt_l":
-            TypeChecker.check_arb_rule_stmt_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_arb_rule_stmt_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert ast[0] == "ccode_statement_l"
-            for i in range(1, len(ast)):
-                if len(ast[i]) == 0:
-                    continue
-                if ast[i][0] == "yield":
-                    if not TypeChecker.is_event_in_stream(
-                        output_type, ast[i][PPARB_RULE_STMT_YIELD_EVENT]
-                    ):
-                        raise Exception(
-                            f"Event {ast[i][PPARB_RULE_STMT_YIELD_EVENT]} does not happen in stream "
-                            f"{output_type}"
-                        )
-                elif ast[i][0] == "switch":
-                    TypeChecker.assert_symbol_type(
-                        ast[i][PPARB_RULE_STMT_SWITCH_ARB_RULE], ARBITER_RULE_SET
-                    )
-
-    @staticmethod
-    def check_arbiter_rule_list(ast, output_type):
-        if ast[0] == "arb_rule_list":
-            TypeChecker.check_arbiter_rule_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_arbiter_rule_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert "arbiter_rule" in ast[0]
-            TypeChecker.check_list_buff_exprs(ast[PPARB_RULE_LIST_BUFF_EXPR])
-            TypeChecker.check_arb_rule_stmt_list(ast[PPARB_RULE_STMT_LIST], output_type)
-
-    @staticmethod
-    def check_rule_set_list(ast, output_type):
-        if ast[0] == "arb_rule_set_l":
-            TypeChecker.check_rule_set_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_rule_set_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert ast[0] == "arbiter_rule_set"
-            TypeChecker.check_arbiter_rule_list(ast[PPARB_RULE_LIST], output_type)
-
-    @staticmethod
-    def check_arbiter(ast):
-        assert ast[0] == "arbiter_def"
-        output_type = ast[PPARBITER_OUTPUT_TYPE]
-        TypeChecker.arbiter_output_type = output_type
-        TypeChecker.check_rule_set_list(ast[PPARBITER_RULE_SET_LIST], output_type)
-
-    @staticmethod
-    def check_monitor_rule_list(ast):
-        if ast[0] == "monitor_rule_l":
-            TypeChecker.check_monitor_rule_list(ast[PLIST_BASE_CASE], ast[PLIST_TAIL])
-        else:
-            assert ast[0] == "monitor_rule"
-            event_name = ast[PPMONITOR_RULE_EV_NAME]
-            if not TypeChecker.is_event_in_stream(
-                TypeChecker.arbiter_output_type, event_name
-            ):
-                raise Exception(
-                    f"Arbiter outputs stream of type {TypeChecker.arbiter_output_type}. "
-                    f"It does not consider event {event_name}."
-                )
-
-    @staticmethod
-    def check_monitor(ast):
-        assert ast[0] == "monitor_def"
-        TypeChecker.check_monitor_rule_list(ast[PPMONITOR_RULE_LIST])
 
     @staticmethod
     def get_stream_processors_data(stream_processors):
