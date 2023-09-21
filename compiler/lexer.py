@@ -2,6 +2,12 @@ import ply.lex as lex
 
 
 class MyLexer(object):
+    # A string containing ignored characters (spaces and tabs) when we are in INITIAL context
+    t_ignore = " \t" 
+
+    # Ignored characters (spaces, end of lines, and tabs) when we are in CCODE context 
+    t_CCODE_ignore = " \t\n"
+
     literals = [
         "[",
         "]",
@@ -28,13 +34,13 @@ class MyLexer(object):
     def t_BEGIN_CCODE(self, t):
         r"\$\$"
         assert t.lexer.current_state() == "INITIAL"
-        t.lexer.push_state("CCODE")  # Enter 'ccode' state
+        t.lexer.push_state("CCODE")  # Enter 'ccode' state, we are now parsing C code
         return t
 
     def t_CCODE_END(self, t):
         r"\$\$"
-        assert t.lexer.current_state() == "CCODE"
-        t.lexer.pop_state()  # Enter INITIAL state
+        assert t.lexer.current_state() == "CCODE" 
+        t.lexer.pop_state()  # Enter INITIAL state, we are no longer parsing C Code
         assert t.lexer.current_state() == "INITIAL"
 
     def t_CCODE_STATEMENT_INITIAL(self, t):
@@ -44,12 +50,10 @@ class MyLexer(object):
 
     def t_CCODE_TOKEN(self, t):
         r"[^$]+"
+        # this matches any token when we are in C code context
         assert t.lexer.current_state() == "CCODE"
         t.type = "CCODE_TOKEN"
         return t
-
-    # Ignored characters (whitespace)
-    t_CCODE_ignore = " \t\n"
 
     # For bad characters, we just skip over it
     def t_CCODE_error(self, t):
@@ -59,14 +63,14 @@ class MyLexer(object):
     def t_semicol(self, t):
         r";"
         t.type = ";"
-
         if len(t.lexer.lexstatestack) > 1:
             assert t.lexer.current_state() == "INITIAL"
             # end code statement
-            t.lexer.pop_state()
+            t.lexer.pop_state() # a semicolon means end of C code
             assert t.lexer.current_state() == "CCODE"
         return t
 
+    # regular expressions for literals
     def t_2dots(self, t):
         r"^:$"
         t.type = ":"
@@ -117,6 +121,7 @@ class MyLexer(object):
         t.type = "|"  # Set token type to the expected literal
         return t
 
+    # These are reserved words for our language
     reserved = {
         "if": "IF",
         "then": "THEN",
@@ -189,8 +194,7 @@ class MyLexer(object):
         "BEGIN_CCODE",
     ] + list(reserved.values())
 
-    # Regular expression rules for simple tokens
-
+    # Regular expression rules for tokens
     # A regular expression rule with some action code
     # Note addition of self parameter since we're in a class
     def t_INT(self, t):
@@ -209,9 +213,7 @@ class MyLexer(object):
         r"\n+"
         t.lexer.lineno += len(t.value)
 
-    # A string containing ignored characters (spaces and tabs)
-    t_ignore = " \t"
-
+    
     # Error handling rule
     def t_error(self, t):
         print(
