@@ -238,7 +238,7 @@ def get_list_from_tree(tree: Tuple, result: List[Tuple]) -> None:
             if type(tree) == str:
                 result.append(tree)
             else:
-                assert tree[0] in ["ID", "expr"]
+                assert tree[0] in ["ID", "expr", "field_decl"]
                 result.append(tree[PLIST_DATA]) 
 
 
