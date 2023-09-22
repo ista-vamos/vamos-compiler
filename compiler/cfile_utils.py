@@ -137,7 +137,12 @@ def stream_type_args_structs(stream_types) -> str:
     return answer
 
 
-def instantiate_stream_args():
+def instantiate_stream_args() -> str:
+    """This function generates code that instantiate the structs that store the shared variables among events in a given stream.
+
+    Returns:
+        _type_: c code that instantiate the structs of stream types
+    """    
     answer = ""
     for (stream_name, data) in TypeChecker.event_sources_data.items():
         has_args = len(data["input_stream_args"]) > 0
@@ -243,14 +248,20 @@ def initialize_stream_args():
 
 
 def stream_type_structs() -> str:
+    """
+    Returns:
+        str: code of stream structs and the output struct that the streams need
+    """    
     answer = ""
-    # union_events += f"EVENT_{hole_name}_hole {hole_name};"
-    special_holes = ""
+
+    # first we compute what kind of holes streams can generate
+    special_holes = "" 
     for (_, data) in TypeChecker.stream_processors_data.items():
         hole_name = data["hole_name"]
         if hole_name is not None:
             special_holes += f"EVENT_{hole_name}_hole {hole_name};"
 
+    # now we declare stream struct. These structs contain all possible events, including holes
     for stream_name in TypeChecker.stream_types_to_events.keys():
         union_events = ""
         for name in TypeChecker.stream_types_to_events[stream_name]:
@@ -1940,7 +1951,14 @@ static void init_hole_{hole_name}(shm_event *hev) {"{"}
 
 
 def get_special_holes_update_code(mapping):
+    """
+    generates the code that uses aggregation functions to update holes
+    Args:
+        mapping (_type_): streams_to_events_map (look variable at main.py)
 
+    Raises:
+        Exception: _description_
+    """    
     answer = ""
     for (stream_processor, data) in TypeChecker.stream_processors_data.items():
         stream_type = data["input_type"]
@@ -2048,29 +2066,34 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
 // declare stream types structs
 {stream_type_structs()}
 
-
+// functions that create a hole and update holes
 {generate_special_hole_functions(streams_to_events_map)}
 
+// Declare structs that store the data of streams shared among events in the struct
 {stream_type_args_structs(components["stream_type"])}
 
+// instantiate the structs that store the variables shared among events in the same struct
 {instantiate_stream_args()}
-int arbiter_counter;
-static bool ARBITER_MATCHED_ = false;
-static bool ARBITER_DROPPED_ = false;
-static size_t match_and_no_drop_num = 0;
+
+int arbiter_counter; // int used as id for the events that the arbiter generates, it increases for every event it generates
+
+static bool ARBITER_MATCHED_ = false; // in each iteration we set this to true if it mathces
+static bool ARBITER_DROPPED_ = false; // in each iteration we set this to true if it drops the event
+static size_t match_and_no_drop_num = 0; // count of consecutive matches without dropping the event (we raise a warning when we reach a certain number of this)
 
 // monitor buffer
-shm_monitor_buffer *monitor_buffer;
+shm_monitor_buffer *monitor_buffer; // where we store the events that the monitor needs to process
 
 bool is_selection_successful;
 dll_node **chosen_streams; // used in rule set for get_first/last_n
-int current_size_chosen_stream = 0;
+int current_size_chosen_stream = 0; // current number of elements in  chosen_streams
 
 void update_size_chosen_streams(const int s) {"{"}
     if (s > current_size_chosen_stream) {"{"}
+        // if s is greater then we need to increase the size of chosen_streams
         free(chosen_streams);
-        chosen_streams = (dll_node **) calloc(s, sizeof(dll_node*));
-        current_size_chosen_stream = s;
+        chosen_streams = (dll_node **) calloc(s, sizeof(dll_node*)); // allocate more space
+        current_size_chosen_stream = s; // set the new number of elements in chosen_streams
     {"}"}
 {"}"}
 
