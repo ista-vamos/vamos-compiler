@@ -310,20 +310,19 @@ def define_signal_handlers(event_sources):
     answer += "\t__work_done = 1;\n}"
     return answer
 
-def stream_type_from_ev_source(event_source):
-    stream_type = event_source[3]
-    if isinstance(stream_type, tuple):
-        assert stream_type[0] == "name-with-args", stream_type
-        stream_type = stream_type[1]
-    assert isinstance(stream_type, str)
-    return stream_type
 
+def events_enum_kinds(streams_to_events_map) -> str:
+    """creates an enum for each event source, such that the enum contains all the possible events of the event source.
 
-def events_enum_kinds(event_sources, streams_to_events_map) -> str:
+    Args:
+        streams_to_events_map (_type_): _description_
+
+    Returns:
+        str: _description_
+    """    
     answer = ""
-    for event_source in event_sources:
-        assert event_source[0] == "event_source"
-        stream_type = stream_type_from_ev_source(event_source)
+    for (_, data) in TypeChecker.event_sources_data.items():
+        stream_type = data['input_stream_type']
         answer += f"enum {stream_type}_kinds {{\n"
         assert stream_type in streams_to_events_map, stream_type
         for _, attrs in streams_to_events_map[stream_type].items():
@@ -358,7 +357,7 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
         if len(connection_kind) == 4:
             min_size_uninterrupt = connection_kind[3]
 
-        stream_type = stream_type_from_ev_source(event_source)
+        stream_type = TypeChecker.event_sources_data[stream_name]['output_stream_type']
         out_event = f"STREAM_{stream_type}_out"
         if copies:
             for i in range(copies):
@@ -1851,6 +1850,7 @@ def declare_rule_set_counters(tree):
 
 
 def get_imports():
+    # we return a string with all the libraries we should include
     return f"""
 #include <threads.h>
 #include <signal.h>
@@ -1871,9 +1871,11 @@ def get_imports():
 """
 
 
-def special_hole_structs():
+def special_hole_structs() -> str:
+    """C code that creates the struct of holes
+    """    
     answer = ""
-    for (stream_processor, data) in TypeChecker.stream_processors_data.items():
+    for (_, data) in TypeChecker.stream_processors_data.items():
         if data["special_hole"] is not None:
             # TODO: set correctly data types of fields
             hole_name = data["hole_name"]
@@ -2036,13 +2038,20 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
     ++h->cases.hole.n;
 {"}"}
-{events_enum_kinds(components["event_source"], streams_to_events_map)}
+
+// declares the structs of stream types needed for event sources
+{events_enum_kinds(streams_to_events_map)}
+
+// declare hole structs
 {special_hole_structs()}
+
+// declare stream types structs
 {stream_type_structs()}
+
+
 {generate_special_hole_functions(streams_to_events_map)}
 
 {stream_type_args_structs(components["stream_type"])}
-
 
 {instantiate_stream_args()}
 int arbiter_counter;
@@ -2273,10 +2282,15 @@ int main(int argc, char **argv) {"{"}
     setup_signals();
 
     arbiter_counter = 10;
+    // startup code
 	{get_pure_c_code(components, 'startup')}
+
+    // init. event sources streams
     {initialize_stream_args()}
 
+    // connecting event sources
     {event_sources_conn_code(components['event_source'], streams_to_events_map)}
+
      // activate buffers
      printf("-- creating buffers\\n");
     {activate_buffers()}
@@ -2299,6 +2313,7 @@ int main(int argc, char **argv) {"{"}
      printf("-- cleaning up\\n");
      {destroy_all()}
 
+    // BEGIN clean up code
 {get_pure_c_code(components, 'cleanup')}
 {"}"}
 """

@@ -291,6 +291,7 @@ def get_events_data(tree: Tuple, events_data: Dict[str, List[Dict[str, str]]]) -
 def get_stream_to_events_mapping(
     stream_types: List[Tuple], stream_processors_object
 ) -> Dict[str, Any]:
+    
     mapping = dict()
     for tree in stream_types:
         assert tree[0] == "stream_type"
@@ -436,7 +437,9 @@ def get_event_kinds_enums(
         get_event_kinds_enums(tree[PPLIST_EV_CALL_TAIL], kinds, mapping)
 
 
-def get_arbiter_event_source(tree: Tuple) -> str:
+def get_arbiter_output_type(tree: Tuple) -> str:
+    ''' returns the stream in which the arbiter will yield results so that the monitor process it
+    '''
     assert tree[0] == "arbiter_def"
     return tree[PPARBITER_OUTPUT_TYPE]
 
@@ -611,8 +614,9 @@ def get_count_drop_events_from_l_buff(tree: Tuple, answer: Dict[str, int]) -> No
 
 def get_existing_buffers(type_checker: Any) -> List[str]:
     """
+    it returns the buffers we must create for each copy of each event source
     :param type_checker:  TypeChecker object (cannot import it in this file because of recursive imports)
-    :return:
+    :return: a list with the name of the buffers
     """
     answer = []
     for (event_source, data) in type_checker.event_sources_data.items():

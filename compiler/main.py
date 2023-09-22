@@ -81,10 +81,9 @@ streams_to_events_map = get_stream_to_events_mapping(
 stream_types: Dict[str, Tuple[str, str]] = get_stream_types(components["event_source"])
 # END PARSING components data
 
-arbiter_event_source = get_arbiter_event_source(ast[2])
-existing_buffers = get_existing_buffers(TypeChecker)
+TypeChecker.arbiter_output_type = get_arbiter_output_type(ast[2]) # the arbiter's output type
 
-TypeChecker.arbiter_output_type = arbiter_event_source
+existing_buffers = get_existing_buffers(TypeChecker)
 
 if args.out is None:
     print("provide the path of the file where the C program must be written.")
@@ -92,6 +91,7 @@ if args.out is None:
 output_path = args.out
 
 if args.with_tessla:
+    # generate a rust file that makes use of Tessla
     if args.dir is None:
         print("ERROR: Must provide the directory path where Tessla files are located")
         exit(1)
@@ -106,7 +106,7 @@ if args.with_tessla:
         ast,
         streams_to_events_map,
         stream_types,
-        arbiter_event_source,
+        TypeChecker.arbiter_output_type,
         existing_buffers,
         args
     )
@@ -115,7 +115,7 @@ if args.with_tessla:
     file.close()
 
     # BEGIN writing rust file
-    program = get_rust_file(streams_to_events_map, arbiter_event_source, None)
+    program = get_rust_file(streams_to_events_map, TypeChecker.arbiter_output_type, None)
     file = open(f"{args.dir}/src/monitor.rs", "r")
     lines = file.readlines()
     file.close()
@@ -144,13 +144,12 @@ if args.with_tessla:
         "DO NOT FORGET to add target/debug/libmonitor.a to the build file of your monitor"
     )
 else:
-
     program = get_c_program(
         components,
         ast,
         streams_to_events_map,
         stream_types,
-        arbiter_event_source,
+        TypeChecker.arbiter_output_type,
         existing_buffers,
         args,
     )
