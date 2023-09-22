@@ -8,7 +8,7 @@ from type_checker import TypeChecker, ARBITER_RULE_SET
 
 
 class StaticCounter:
-    declarations_counter = 0
+    declarations_counter = 0 # used to declare temporary arrays in a rule set for the arbiter
     calls_counter = 0
 
     match_expr_counter = 0
@@ -1420,6 +1420,9 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
     else:
 
         if tree[0] == "arbiter_rule1":
+            ''' ON list_buff_match_exp WHERE BEGIN_CCODE ccode_l_where_expression BEGIN_CCODE arbiter_rule_stmt_list
+                 | ON list_buff_match_exp BEGIN_CCODE arbiter_rule_stmt_list
+            '''
             binded_args = dict()
             get_buff_math_binded_args(
                 tree[PPARB_RULE_LIST_BUFF_EXPR],
@@ -1463,6 +1466,9 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
             {rule_set_streams_condition(tree[PPARB_RULE_LIST_BUFF_EXPR], mapping, stream_types, inner_code)}
             """
         else:
+            '''| CHOOSE listids arb_choose_middle_part '{' arbiter_rule_list '}'
+                | CHOOSE choose_order listids arb_choose_middle_part '{' arbiter_rule_list '}'
+            '''
             assert tree[0] == "arbiter_rule2"
             binded_streams = []
             get_list_from_tree(tree[2], binded_streams)
@@ -1519,7 +1525,6 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
     print_args_code = ""
 
     for arg_data in TypeChecker.stream_types_data[buffer_group_type]["arg_types"]:
-        iterpol_code = ""
         if arg_data["type"] in ["int", "uint16_t", "int16_t"]:
             interpol_code = "%d"
         elif arg_data["type"] in ["uint64_t"]:
@@ -1672,7 +1677,11 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
 
 
 def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, components, args):
+    '''C code that declares a function for each rule set
+    '''
     def local_explore_rule_list(local_tree) -> str:
+        ''' parses a rule set
+        '''
         if local_tree[0] == "arb_rule_list":
             return local_explore_rule_list(local_tree[1]) + local_explore_rule_list(
                 local_tree[2]
@@ -1686,6 +1695,9 @@ def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, comp
             )
 
     def local_explore_arb_rule_set_list(local_tree) -> str:
+        ''' 
+        parses a list of rule sets
+        '''
         if local_tree is not None:
             if local_tree[0] == "arb_rule_set_l":
                 return local_explore_arb_rule_set_list(
@@ -1811,7 +1823,7 @@ void print_event_name(int ev_src_index, int event_index) {"{"}
     """
 
 
-def get_event_name(stream_types, mapping):
+def get_event_name(mapping):
     def local_build_if_from_events(events) -> str:
         answer = ""
         for (event, data) in events.items():
@@ -2261,7 +2273,7 @@ static inline dump_event_data(shm_event *ev, size_t ev_size) {{
 }}
 */
 
-{get_event_name(stream_types, streams_to_events_map)}
+{get_event_name(streams_to_events_map)}
 
 /* src_idx = -1 if unknown */
 static void
@@ -2316,8 +2328,9 @@ shm_event * get_event_at_index(char* e1, size_t i1, char* e2, size_t i2, size_t 
 	{"}"}
 {"}"}
 
-//arbiter outevent
+//arbiter outevent (the monitor looks at this)
 STREAM_{arbiter_event_source}_out *arbiter_outevent;
+
 {declare_rule_sets(ast[2])}
 {print_event_name(stream_types, streams_to_events_map)}
 {get_event_at_head()}
@@ -2325,7 +2338,7 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, components, args)}
 {arbiter_code(ast[2], components, existing_buffers, args)}
 
-{define_signal_handlers()}
+{define_signal_handlers()} MAREK knows
 
 static void setup_signals() {{
     // MAREK knows
