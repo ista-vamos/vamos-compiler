@@ -91,10 +91,26 @@ def parse_list_events_agg_func(tree, result):
             return True
 
 
-def build_custom_hole(tree, result):
+def get_custom_hole_attrs(tree: Tuple) -> List[Dict[str, str]]:
+    """_summary_
+
+    Args:
+        tree (Tuple): _description_
+
+    Returns:
+        List[Dict[str, str]]: _description_
+    """    
+    """_summary_
+
+    Args:
+        tree (Tuple): a 'custom_hole' AST
+
+    Returns:
+        List[Dict[str, str]]: a list of dictionaries where each dictionary has the following attributes:
+                "type", "attribute","agg_func_name","agg_func_params"
+    """    
     if tree[0] == "l-hole-attributes":
-        build_custom_hole(tree[1], result)
-        build_custom_hole(tree[2], result)
+        get_custom_hole_attrs(tree[1]) + get_custom_hole_attrs(tree[2])
     else:
         assert tree[0] == "hole-attribute"
         attribute_type = tree[1]
@@ -103,14 +119,14 @@ def build_custom_hole(tree, result):
         agg_func_name = agg_func[1]
         agg_func_params = []
         parse_list_events_agg_func(agg_func[2], agg_func_params)
-        result.append(
-            {
+        
+        return [{
                 "type": attribute_type,
                 "attribute": attribute,
                 "agg_func_name": agg_func_name,
                 "agg_func_params": agg_func_params,
-            }
-        )
+            }]
+        
 
 
 def get_events_to_hole_update_data(data, all_events):
@@ -146,7 +162,7 @@ def get_events_to_hole_update_data(data, all_events):
     return answer
 
 
-def get_processor_rules(tree, result):
+def get_processor_rules(tree, result) -> (str, Dict):
     if tree[0] == "perf_layer_list":
         (name1, part1_result) = get_processor_rules(tree[1], result)
         (name2, part2_result) = get_processor_rules(tree[2], result)
@@ -188,8 +204,7 @@ def get_processor_rules(tree, result):
             return None, None
         else:
             assert tree[0] == "custom_hole"
-            custom_hole = []
-            build_custom_hole(tree[2], custom_hole)
+            custom_hole = get_custom_hole_attrs(tree[2])
             return tree[1], custom_hole
 
 
@@ -381,15 +396,6 @@ def are_all_events_decl_primitive(tree: Tuple) -> bool:
 
 
 # Performance Layer utils
-def get_event_sources_names(event_sources: Tuple, names: List[str]) -> None:
-    for tree in event_sources:
-        assert tree[0] == "event_source"
-        event_src_declaration = tree[2]
-        assert event_src_declaration[0] == "event-decl"
-        name, _ = get_name_with_args(event_src_declaration[1])
-        names.append(name)
-
-
 def get_event_sources_copies(event_sources: Tuple) -> List[Tuple[str, int]]:
     result = []
     for tree in event_sources:

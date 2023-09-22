@@ -38,6 +38,8 @@ def get_globals_code(components, mapping, stream_types) -> str:
 
 
 def declare_order_expressions():
+    '''functions to sort streams
+    '''
     answer = ""
 
     for (buff_name, data) in TypeChecker.buffer_group_data.items():
@@ -293,11 +295,14 @@ typedef struct _STREAM_{stream_name}_out STREAM_{stream_name}_out;
     return answer
 
 
-def declare_event_sources(event_sources):
-    event_srcs_names = []
-    get_event_sources_names(event_sources, event_srcs_names)
+def declare_event_sources() -> str:
+    """ code to declare event sources
+
+    Returns:
+        str: C code to declare event sources
+    """    
     answer = ""
-    for name in event_srcs_names:
+    for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
                 answer += f"shm_stream *EV_SOURCE_{name}_{i};\n"
@@ -306,13 +311,12 @@ def declare_event_sources(event_sources):
     return answer
 
 
-def define_signal_handlers(event_sources):
-    event_srcs_names = []
-    get_event_sources_names(event_sources, event_srcs_names)
+def define_signal_handlers():
+
     answer = (
         "static void sig_handler(int sig) {\n" '\tprintf("signal %d caught...", sig);'
     )
-    for name in event_srcs_names:
+    for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
                 answer += f"\tshm_stream_detach(EV_SOURCE_{name}_{i});\n"
@@ -425,6 +429,11 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
 
 
 def declare_evt_srcs_threads() -> str:
+    """
+
+    Returns:
+        str: C code that instantiates thread object for each event source
+    """    
     answer = ""
     for (event_source, data) in TypeChecker.event_sources_data.items():
         if data["copies"]:
@@ -438,6 +447,8 @@ def declare_evt_srcs_threads() -> str:
 
 
 def declare_arbiter_buffers(components, ast) -> str:
+    ''' declares a buffer for each event sources, from which the arbiter peeks
+    '''
     assert ast[0] == "main_program"
     event_srcs_names = get_event_sources_copies(components["event_source"])
 
@@ -526,6 +537,14 @@ def build_drop_funcs_conds(rules, stream_name, mapping) -> str:
 
 
 def build_should_keep_funcs(mapping) -> str:
+    """this generate the code of functions for stream processors. Each of this functions filter the events that should be forwared to the arbiter.
+
+    Args:
+        mapping (_type_): streams_to_events_map (see variable in main.py)
+
+    Returns:
+        str: C code of filters for stream processes
+    """    
     answer = f"""
 bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
     return true;
@@ -541,6 +560,7 @@ bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
         if extend_processor_name.lower() == "forward":
             extend_processor_name = extend_processor_name.lower()
         answer += f"""bool SHOULD_KEEP_{stream_processor}(shm_stream * s, shm_event * inevent) {"{"}
+    // function for stream {stream_processor} that determines whether an event should be forwarded
 {build_drop_funcs_conds(performance_layer_rule_list, stream_type, mapping[stream_type])}
     return SHOULD_KEEP_{extend_processor_name}(s, inevent);
 {"}"}
@@ -558,9 +578,11 @@ def assign_args(event_name, args, list_expressions, level) -> str:
     return answer
 
 
-def declare_performance_layer_args(
+def perf_layer_init_event_args(
     event_case: str, mapping_in: Dict[str, Any], ids
 ) -> str:
+    """initializes the args of a created event in the performance layer.
+    """    
     to_declare_ids = []
     get_list_from_tree(ids, to_declare_ids)
     assert len(to_declare_ids) == len(mapping_in["args"])
@@ -571,9 +593,11 @@ def declare_performance_layer_args(
     return answer
 
 
-def build_switch_performance_match(
+def build_switch_performance_match_case(
     tree, input_event, mapping_in, mapping_out, stream_type, level
 ) -> str:
+    ''' builds a case for an event that has happened in the performance layer.
+    '''
     if tree[0] == "perf_match1":
         performance_action = tree[PPERF_MATCH_ACTION]
         if performance_action[0] == "perf_act_drop":
@@ -593,7 +617,7 @@ def build_switch_performance_match(
                 assign_args_code = f"""
 {tabs}(outevent->head).kind = {mapping_out[event_out_name]["enum"]};
 {tabs}(outevent->head).id = (inevent->head).id;
-{declare_performance_layer_args(event_out_name,
+{perf_layer_init_event_args(event_out_name,
                                 mapping_in[event_out_name],
                                 performance_action[PPPERF_ACTION_FORWARD_EXPRS])}
 {assign_args(event_out_name, mapping_out[event_out_name]["args"],
@@ -609,71 +633,69 @@ def build_switch_performance_match(
         assert tree[0] == "perf_match2"
         return f"""
         if ({tree[PPPERF_MATCH_EXPRESSION]}) {"{"}
-            {build_switch_performance_match(tree[PPPERF_MATCH_TRUE_PART], input_event, mapping_in, mapping_out, level + 1)}
+            {build_switch_performance_match_case(tree[PPPERF_MATCH_TRUE_PART], input_event, mapping_in, mapping_out, level + 1)}
         {"}"} else {"{"}
-            {build_switch_performance_match(tree[PPPERF_MATCH_FALSE_PART], input_event, mapping_in, mapping_out, level + 1)}
+            {build_switch_performance_match_case(tree[PPPERF_MATCH_FALSE_PART], input_event, mapping_in, mapping_out, level + 1)}
         {"}"}"""
 
 
-def get_stream_switch_cases(cases, mapping_in, mapping_out, out_name, level) -> str:
-    answer = ""
-    for case in cases:
-        if case["stream_type"] is None:
-            answer += f"""
-case {mapping_in[event_name]["enum"]}:
-    {build_switch_performance_match(case["performance_match"], event_name, mapping_in, mapping_out, level=level + 1)}
-    break;"""
-        else:
-            assert case["buff_group"] is not None
-            assert case["process_using"] is not None
-            creates_code = ""
-            buffer_kind = case["connection_kind"]["type"]
-            event_name, event_args = case["event"], case["event_args"]
-            buffer_group = case["buff_group"]
-            stream_processor_name = case["process_using"]
-            if buffer_kind != "autodrop":
-                raise Exception("implement of non-autodrop buffer missing!")
-            buff_size = case["connection_kind"]["size"]
-            stream_type = case["stream_type"]
-            init_stream_args_code = instantiate_args(
-                stream_type, event_name, event_args
-            )
-            original_sp_args = TypeChecker.stream_processors_data[
-                stream_processor_name
-            ]["output_args"]
-            stream_type_args = TypeChecker.args_table[stream_type]
+def get_creates_code(case, out_name, event_name, event_args) -> str:
+    """_summary_
 
-            for (original_arg, new_arg) in zip(
-                TypeChecker.args_table[stream_processor_name],
-                case["process_using_args"],
-            ):
-                assert type(new_arg) == str
-                init_stream_args_code += (
-                    f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
-                )
+    Args:
+        case (_type_): is a dictionary that contains data of the event that creates dynamically even sources
+        out_name (_type_): _description_
 
-            for (arg, sp_arg) in zip(stream_type_args, original_sp_args):
-                init_stream_args_code += (
-                    f"stream_args_temp->{arg['name']} = {sp_arg}; \n"
-                )
+    Returns:
+        str: Generates C code to create dynamically event sources
+    """  
+    buffer_kind = case["connection_kind"]["type"]
+    if buffer_kind != "autodrop":
+        raise Exception("implement of non-autodrop buffer missing!")
+    
+    stream_type = case["stream_type"]
+    buffer_group = case["buff_group"]
+    stream_processor_name = case["process_using"] 
+    buff_size = case["connection_kind"]["size"]
 
-            stream_args_code = f"""
+    init_stream_args_code = instantiate_args(
+        stream_type, event_name, event_args
+    )
+    original_sp_args = TypeChecker.stream_processors_data[
+        stream_processor_name
+    ]["output_args"]
+    stream_type_args = TypeChecker.args_table[stream_type]    
+    for (original_arg, new_arg) in zip(
+        TypeChecker.args_table[stream_processor_name],
+        case["process_using_args"],
+    ):
+        assert type(new_arg) == str
+        init_stream_args_code += (
+            f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
+        )
+
+    for (arg, sp_arg) in zip(stream_type_args, original_sp_args):
+        init_stream_args_code += (
+            f"stream_args_temp->{arg['name']} = {sp_arg}; \n"
+        )
+    stream_args_code = f"""
+// we insert a new event source in the corresponding buffer group
 STREAM_{stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{stream_type}_ARGS));
 {init_stream_args_code}
 mtx_lock(&LOCK_{buffer_group});
 bg_insert(&BG_{buffer_group}, ev_source_temp, temp_buffer,stream_args_temp,{buffer_group}_ORDER_EXP);
 mtx_unlock(&LOCK_{buffer_group});
 """
-            stream_threshold_code = f""
-            min_size_uninterrupt = case["connection_kind"]["threshold"]
-            if min_size_uninterrupt > 2:
-                stream_threshold_code = f"\tshm_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n"
+    stream_threshold_code = f""
+    min_size_uninterrupt = case["connection_kind"]["threshold"]
+    if min_size_uninterrupt > 2:
+        stream_threshold_code = f"\tshm_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n" # MAREK knows
 
-            hole_name = TypeChecker.stream_processors_data[stream_processor_name][
-                "hole_name"
-            ]
-            out_event = f"STREAM_{stream_type}_out"
-            creates_code = f"""
+    hole_name = TypeChecker.stream_processors_data[stream_processor_name][
+        "hole_name"
+    ]
+    out_event = f"STREAM_{stream_type}_out"
+    creates_code = f"""
             shm_stream_hole_handling hole_handling = {{
               .hole_event_size = sizeof({out_event}),
               .init = &init_hole_{hole_name},
@@ -692,9 +714,31 @@ mtx_unlock(&LOCK_{buffer_group});
             thrd_create(&temp_thread, (void*)PERF_LAYER_{stream_processor_name}, temp_buffer);
             shm_arbiter_buffer_set_active(temp_buffer, true);
             """
+    return creates_code
+
+def get_stream_switch_cases(cases, mapping_in, mapping_out, out_name, level) -> str:
+    ''' generates C code that handles events through switch cases (this is only the inner code of a function)
+    '''
+    answer = ""
+    for case in cases:
+        if case["stream_type"] is None:
+            # if we do not need another stream processor..
+            answer += f"""
+case {mapping_in[event_name]["enum"]}:
+    {build_switch_performance_match_case(case["performance_match"], event_name, mapping_in, mapping_out, level=level + 1)}
+    break;"""
+        else:
+            # this is a more complicated case that creates new event sources
+            assert case["buff_group"] is not None
+            assert case["process_using"] is not None
+            event_name, event_args = case["event"], case["event_args"]
+            
+            stream_type = case["stream_type"]
+            
+            creates_code = get_creates_code(case, out_name, event_name, event_args)
             answer += f"""
                 case {mapping_in[event_name]["enum"]}:
-                {build_switch_performance_match(case['performance_match'], event_name, mapping_in, mapping_out,stream_type, level=level + 1)}
+                {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out,stream_type, level=level + 1)}
                 {creates_code}
                 break;
                 """
@@ -702,11 +746,19 @@ mtx_unlock(&LOCK_{buffer_group});
 
 
 def declare_perf_layer_funcs(mapping) -> str:
+    """
+    Args:
+        mapping (_type_): streams_to_events_map (see variable in main.py)
+
+    Returns:
+        str: C code for the performance layer. This functions drop or forward events.
+    """    
     answer = ""
 
     for stream_type in TypeChecker.stream_types_data.keys():
         answer += f"""
 int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
+    // this function forwards everything
     atomic_fetch_add(&count_event_streams, 1); 
     shm_stream *stream = shm_arbiter_buffer_stream(buffer);   
     void *inevent;
@@ -738,14 +790,11 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
         stream_in_name = data["input_type"]
         stream_out_name = data["output_type"]
         perf_layer_list = data["perf_layer_rule_list"]
-        if data["special_hole"] is None:
-            hole_name = ""
-        else:
-            hole_name = f"_{data['hole_name']}"
         perf_layer_code = f"""
                     switch ((inevent->head).kind) {"{"}
         {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_out_name, level=3)}
                     default:
+                        // by default we just forward the event
                         memcpy(outevent, inevent, sizeof(STREAM_{stream_in_name}_in));   
                         shm_arbiter_buffer_write_finish(buffer);
                 {"}"}
@@ -1849,6 +1898,7 @@ def declare_const_rule_set_names(tree):
 
 
 def declare_rule_set_counters(tree):
+    # MAREK knows
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
@@ -2099,26 +2149,35 @@ void update_size_chosen_streams(const int s) {"{"}
 
 // globals code
 {get_globals_code(components, streams_to_events_map, stream_types)}
+
+// functions for streams that determine if an event should be forwarded to the monitor
 {build_should_keep_funcs(streams_to_events_map)}
 
-atomic_int count_event_streams = 0;
+atomic_int count_event_streams = 0; // number of active event sources
 
 // declare event streams
-{declare_event_sources(components["event_source"])}
+{declare_event_sources()}
 
 // event sources threads
 {declare_evt_srcs_threads()}
 
 // declare arbiter thread
 thrd_t ARBITER_THREAD;
+
+// we index rule sets
 {declare_const_rule_set_names(ast[2])}
-{declare_rule_set_counters(ast[2])}
-int current_rule_set = {get_first_const_rule_set_name(ast[2])};
+
+
+{declare_rule_set_counters(ast[2])} # MAREK knows
+
+
+int current_rule_set = {get_first_const_rule_set_name(ast[2])}; // initial arbiter rule set
 
 {declare_arbiter_buffers(components, ast)}
 
 
 // buffer groups
+// sorting streams functions
 {declare_order_expressions()}
 {declare_buffer_groups()}
 
@@ -2158,6 +2217,7 @@ bool check_at_least_n_events(size_t count, size_t n) {"{"}
 
 static
 bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, size_t ev_size, int event_kinds[], int n_events) {"{"}
+    // this functions checks that a buffer have the same kind of event as the array event_kinds
     assert(n_events > 0);
 	if (count < n_events) {"{"}
 	    return false;
@@ -2265,9 +2325,10 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, components, args)}
 {arbiter_code(ast[2], components, existing_buffers, args)}
 
-{define_signal_handlers(components["event_source"])}
+{define_signal_handlers()}
 
 static void setup_signals() {{
+    // MAREK knows
     if (signal(SIGINT, sig_handler) == SIG_ERR) {{
 	perror("failed setting SIGINT handler");
     }}
