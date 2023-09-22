@@ -55,24 +55,23 @@ TypeChecker.clean_checker()
 ast = parse_program(file)
 assert ast[0] == "main_program"
 components = dict()
-get_components_dict(ast[1], components)
+get_components_dict(ast[1], components) # split tree into various parts each part will be a value in the components dictionary (e.g stream_type maps to all declarations of stream_types)
 
+# parse components trees
 if "stream_type" in components.keys():
     TypeChecker.get_stream_types_data(components["stream_type"])
+TypeChecker.get_stream_events(components["stream_type"])
 
 if "stream_processor" in components.keys():
     TypeChecker.get_stream_processors_data(components["stream_processor"])
-for event_source in components["event_source"]:
-    TypeChecker.insert_event_source_data(event_source)
-TypeChecker.get_stream_events(components["stream_type"])
+
+TypeChecker.get_event_source_data(components["event_source"])
 
 if "buff_group_def" in components.keys():
-    for buff_group in components["buff_group_def"]:
-        TypeChecker.add_buffer_group_data(buff_group)
+    TypeChecker.get_buffer_group_data(components["buff_group_def"])
 
 if "match_fun_def" in components.keys():
-    for match_fun in components["match_fun_def"]:
-        TypeChecker.add_match_fun_data(match_fun)
+    TypeChecker.get_match_fun_data(components["match_fun_def"])
 
 
 streams_to_events_map = get_stream_to_events_mapping(
@@ -80,6 +79,8 @@ streams_to_events_map = get_stream_to_events_mapping(
 )
 
 stream_types: Dict[str, Tuple[str, str]] = get_stream_types(components["event_source"])
+# END PARSING components data
+
 arbiter_event_source = get_arbiter_event_source(ast[2])
 existing_buffers = get_existing_buffers(TypeChecker)
 

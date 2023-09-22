@@ -107,32 +107,19 @@ def get_stream_struct_fields(field_declarations):
     return struct_fields
 
 
-def events_declaration_structs(stream_name, tree) -> str:
-    if tree[0] == "event_list":
-        return (
-            events_declaration_structs(stream_name, tree[PLIST_BASE_CASE])
-            + "\n"
-            + events_declaration_structs(stream_name, tree[PLIST_TAIL])
-        )
-    else:
-        assert tree[0] == "event_decl"
-        event_name = tree[PPEVENT_NAME]
-        fields = []
-        if tree[PPEVENT_PARAMS_LIST]:
-            get_parameters_types_field_decl(tree[PPEVENT_PARAMS_LIST], fields)
+def events_declaration_structs(stream_name) -> str:
+    events = TypeChecker.stream_types_data[stream_name]['events']
+    answer = ""
+    for (event_name, params) in events.items():
         struct_fields = ""
-        index = 0
-        for data in fields:
-            is_last = index == len(data) - 1
-            if not is_last:
-                struct_fields += f"\t{data['type']} {data['name']};\n"
-            else:
-                struct_fields += f"\t{data['type']} {data['name']};\n"
+        for data in params:
+            struct_fields += f"\t{data['type']} {data['name']};\n"
 
-        return f"""struct _EVENT_{stream_name}_{event_name} {"{"}
+        answer += f"""struct _EVENT_{stream_name}_{event_name} {"{"}
 {struct_fields}
 {"}"};
 typedef struct _EVENT_{stream_name}_{event_name} EVENT_{stream_name}_{event_name};"""
+    return answer
 
 
 def stream_type_args_structs(stream_types) -> str:
@@ -271,7 +258,7 @@ def stream_type_structs() -> str:
 
         union_events += special_holes
         answer += f"""// event declarations for stream type {stream_name}
-{events_declaration_structs(stream_name, TypeChecker.stream_types_data[stream_name]["raw_events_list"])}
+{events_declaration_structs(stream_name)}
 
 // input stream for stream type {stream_name}
 struct _STREAM_{stream_name}_in {"{"}
@@ -484,7 +471,6 @@ def activate_buffers() -> str:
                 answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{name}, true);\n"
         else:
             answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{event_source}, true);\n"
-
     return answer
 
 
@@ -554,7 +540,7 @@ bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
 
 def assign_args(event_name, args, list_expressions, level) -> str:
     expressions = []
-    get_expressions(list_expressions, expressions)
+    get_list_from_tree(list_expressions, expressions)
     answer = ""
     tabs = "\t" * level
     for (arg, expr) in zip(args, expressions):
@@ -566,7 +552,7 @@ def declare_performance_layer_args(
     event_case: str, mapping_in: Dict[str, Any], ids
 ) -> str:
     to_declare_ids = []
-    get_expressions(ids, to_declare_ids)
+    get_list_from_tree(ids, to_declare_ids)
     assert len(to_declare_ids) == len(mapping_in["args"])
     answer = ""
     args = mapping_in["args"]
@@ -989,7 +975,7 @@ def rule_set_streams_condition(
             if buffer_name in context.keys():
                 raise Exception("buffer name is in context created in match fun")
         binded_streams = []
-        get_list_ids(tree[2], binded_streams)
+        get_list_from_tree(tree[2], binded_streams)
         return get_buff_groups_combinations_code(
             buffer_name,
             binded_streams,
@@ -1007,7 +993,7 @@ def rule_set_streams_condition(
 
         if arg1 is not None:
             fun_bind_args = []
-            get_list_ids(arg1, fun_bind_args)
+            get_list_from_tree(arg1, fun_bind_args)
             for (original_name, new_name) in zip(
                 TypeChecker.match_fun_data[match_fun_name]["out_args"], fun_bind_args
             ):
@@ -1015,7 +1001,7 @@ def rule_set_streams_condition(
 
         if arg2 is not None:
             new_args = []
-            get_list_var_or_int(arg2, new_args)
+            get_list_from_tree(arg2, new_args)
             for (original_arg, new_arg) in zip(
                 TypeChecker.match_fun_data[match_fun_name]["in_args"], new_args
             ):
@@ -1039,7 +1025,7 @@ def construct_arb_rule_outevent(
 ) -> str:
     local_args = []
 
-    get_expressions(raw_args, local_args)
+    get_list_from_tree(raw_args, local_args)
 
     answer = f"""arbiter_outevent->head.kind = {mapping[output_ev_source][output_event]["index"]};
     arbiter_outevent->head.id = arbiter_counter++;
@@ -1178,7 +1164,7 @@ def declare_arrays(scanned_kinds) -> str:
 def declare_monitor_args(tree, event_name, event_data, count_tabs) -> str:
     tabs = "\t" * count_tabs
     ids = []
-    get_list_ids(tree, ids)
+    get_list_from_tree(tree, ids)
     args = event_data["args"]
     assert len(ids) == len(args)
 
@@ -1420,7 +1406,7 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
         else:
             assert tree[0] == "arbiter_rule2"
             binded_streams = []
-            get_list_ids(tree[2], binded_streams)
+            get_list_from_tree(tree[2], binded_streams)
             choose_condition = tree[4]
 
             choose_order = tree[1]

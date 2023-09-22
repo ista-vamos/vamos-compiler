@@ -443,7 +443,7 @@ def p_performance_action(p):
         expression_list = p[4]
         ID = p[2]
         TypeChecker.assert_symbol_type(ID, EVENT_NAME)
-        length_exprs = get_count_list_expr(expression_list) # compute the number of expressions in this list
+        length_exprs = count_tree_list_elements(expression_list) # compute the number of expressions in this list
         TypeChecker.assert_num_args_match(ID, length_exprs) # assert we are passing the right number of arguments
         p[0] = (
             "perf_act_forward",
@@ -617,11 +617,11 @@ def p_match_fun_def(p):
 
     if arg2 is not None:
         ids = []
-        get_list_ids(arg2, ids)
+        get_list_from_tree(arg2, ids)
         
     if arg1 is not None:
         ids = []
-        get_list_ids(arg1, ids)
+        get_list_from_tree(arg1, ids)
 
 
 # END advanced features
@@ -717,7 +717,7 @@ def p_arbiter_rule(p):
             #   1       2            3               4          5          6
             middle_part = p[3]
             p[0] = ("arbiter_rule2", None, p[2], middle_part[1], middle_part[2], p[5])
-            choose_count = get_count_list_ids(p[2])
+            choose_count = get_list_from_tree(p[2])
 
     if choose_count is not None:
         TypeChecker.max_choose_size = max(TypeChecker.max_choose_size, choose_count)
