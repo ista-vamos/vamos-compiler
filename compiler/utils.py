@@ -207,15 +207,12 @@ def get_list_var_or_int(tree: Tuple, result: List[str]) -> None:
         result.append(tree)
 
 
-def get_count_list_expr(tree: Tuple) -> int:
-    if tree[0] == "expr_list":
-        return 1 + get_count_list_expr(tree[PLIST_TAIL])
-    else:
-        assert tree[0] == "expr"
-        return 1
-
-
 def get_expressions(tree: Tuple, result: List[str]):
+    """given a expr_list tree, we store in 'result' an expr tree
+    Args:
+        tree (Tuple): expr_list tree
+        result (List[str]): list in which we store the result
+    """    
     if tree is not None:
         if tree[0] == "expr_list":
             get_expressions(tree[PLIST_BASE_CASE], result)
@@ -226,14 +223,24 @@ def get_expressions(tree: Tuple, result: List[str]):
             else:
                 result.append(tree)
 
+def get_count_list_expr(tree: Tuple) -> int:
+    """counts the number of expressions in a expr_list tree
 
-def is_primitive_type(type_: str) -> bool:
-    answer = type_ == "int" or type_ == "bool" or type_ == "string" or type_ == "float"
-    answer = answer or type_ == "double"
-    return answer
+    Args:
+        tree (Tuple): expr_list tree
+
+    Returns:
+        int: count of the number of expressions
+    """    
+    expressions = []
+    return len(get_expressions(tree, expressions))
 
 
 def is_type_primitive(tree: Tuple) -> bool:
+    def is_primitive_type(type_: str) -> bool:
+        answer = type_ == "int" or type_ == "bool" or type_ == "string" or type_ == "float"
+        answer = answer or type_ == "double"
+        return answer
     if tree[0] == "type":
         return is_primitive_type(tree[PTYPE_DATA])
     else:
@@ -242,8 +249,6 @@ def is_type_primitive(tree: Tuple) -> bool:
 
 
 # event streams utils
-
-
 def get_events_names(tree: Tuple, names: List[str]) -> None:
     if tree[0] == "event_list":
         get_events_names(tree[PLIST_BASE_CASE], names)
@@ -350,6 +355,12 @@ def get_stream_types(event_sources: Tuple) -> Dict[str, Any]:
 def get_parameters_types_field_decl(
     tree: Tuple, params: List[Dict[str, Tuple]]
 ) -> None:
+    """ parses a list_field_decl tree
+
+    Args:
+        tree (Tuple): syntax tree for list_field_decl
+        params (List[Dict[str, Tuple]]): the result will be stored in this List
+    """    
     if tree is not None:
         assert len(tree) == 3
         if tree[0] == "list_field_decl":
@@ -380,12 +391,6 @@ def get_parameters_names_field_decl(tree: Tuple, params: List[str]) -> None:
         else:
             assert tree[0] == "field_decl"
             params.append(tree[PPFIELD_NAME])
-
-
-def get_event_src_name(tree: Tuple) -> str:
-    assert tree[0] == "event-decl"
-    name, _ = get_name_with_args(tree[1])
-    return name
 
 
 def are_all_events_decl_primitive(tree: Tuple) -> bool:
@@ -426,15 +431,6 @@ def get_event_sources_copies(event_sources: Tuple) -> List[Tuple[str, int]]:
             copies = int(event_src_declaration[2])
         result.append((name, copies))
     return result
-
-
-def get_out_names(tree: Tuple, out_names: List[str]) -> None:
-    if tree[0] == "event_sources":
-        get_out_names(tree[PLIST_BASE_CASE], out_names)
-        get_out_names(tree[PLIST_TAIL], out_names)
-    else:
-        assert tree[0] == "event_source"
-        out_names.append(tree[PPEVENT_SOURCE_OUTPUT_TYPE])
 
 
 def get_rule_set_names(tree: Tuple, names: List[str]) -> None:

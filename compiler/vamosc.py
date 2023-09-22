@@ -88,7 +88,6 @@ file = " ".join(parsed_args_file)
 
 # Type checker initialization
 TypeChecker.clean_checker()
-TypeChecker.add_reserved_keywords()
 
 # Parser
 ast = parse_program(file)
@@ -113,12 +112,6 @@ if "match_fun_def" in components.keys():
     for match_fun in components["match_fun_def"]:
         TypeChecker.add_match_fun_data(match_fun)
 
-# TypeChecker.check_arbiter(ast[-2])
-# TypeChecker.check_monitor(ast[-1])
-#
-# Produce C file
-
-#
 streams_to_events_map = get_stream_to_events_mapping(
     components["stream_type"], TypeChecker.stream_processors_data
 )

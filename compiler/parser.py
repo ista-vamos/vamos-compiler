@@ -167,7 +167,6 @@ def p_event_declaration(p):
         creates_stream = p[5] # ID is at p[5]
 
     # Type checker
-    # TypeChecker.insert_into_args_table(p[PEVENT_NAME], EVENT_NAME, params)
     p[0] = ("event_decl", p[1], event_params_token, creates_stream) # the event name is at p[1]
 
 
@@ -211,10 +210,6 @@ def p_stream_processor(p):
         # STREAM PROCESSOR name_with_args ':' name_with_args right_arrow name_with_args '{' perf_layer_rule_list '}'
         #   1        2           3         4          5            6           7         8           9           10
         perf_layer_rule_list = p[9]
-        # TypeChecker.assert_symbol_type(p[PEVENT_SOURCE_INPUT_TYPE], STREAM_TYPE_NAME)
-        # TypeChecker.assert_symbol_type(p[PEVENT_SOURCE_OUTPUT_TYPE], STREAM_TYPE_NAME)
-        # TypeChecker.check_args_are_primitive(p[PEVENT_SOURCE_OUTPUT_TYPE])
-        # TypeChecker.check_args_are_primitive(p[PEVENT_SOURCE_INPUT_TYPE])
     else:
         assert len(p) == 12
         # STREAM PROCESSOR name_with_args ':' name_with_args right_arrow name_with_args extends_node '{' perf_layer_rule_list '}'
@@ -236,8 +231,6 @@ def p_stream_processor(p):
 
     input_stream_name, c_args_input = get_name_args_count(input_type)
     output_stream_name, c_args_output = get_name_args_count(output_type)
-    # TypeChecker.check_args_are_primitive(input_stream_name)
-    # TypeChecker.check_args_are_primitive(output_stream_name)
 
     TypeChecker.assert_num_args_match(input_stream_name, c_args_input)
     TypeChecker.assert_num_args_match(output_stream_name, c_args_output)
@@ -379,12 +372,6 @@ def p_processor_rule(p):
         include_in,
     )
 
-    # event_name, c_event_args = get_name_args_count(on_event)
-    # TypeChecker.assert_symbol_type(event_name, EVENT_NAME)
-    # TypeChecker.assert_num_args_match(p[PPERF_LAYER_EVENT][1], c_event_args)
-
-    # TODO: Missing more type checking for the rest of parameters
-
 
 def p_creates_part(p):
     """
@@ -486,9 +473,6 @@ def p_event_source(p):
         event_src_tail = p[7]
 
     p[0] = ("event_source", is_dynamic, event_src_declaration, stream, event_src_tail)
-    # stream, _ = get_name_args_count(stream)
-    # TypeChecker.assert_num_args_match(stream, c_stream_args)
-    # TODO: check type of stream type?
 
 
 def p_event_source_decl(p):
@@ -525,12 +509,6 @@ def p_event_source_tail(p):
     connection_kind = ev_src_include_part[1]
     include_in = ev_src_include_part[2]
     p[0] = ("ev-source-tail", process_using, connection_kind, include_in)
-
-    # if process_using is not None:
-    #     name, c_args = get_name_args_count(process_using)
-    #     if name.lower() != "forward":
-    #         TypeChecker.assert_symbol_type(name, STREAM_PROCESSOR_NAME)
-    #         TypeChecker.assert_num_args_match(name, c_args)
 
 
 def p_ev_src_include_part(p):
@@ -602,12 +580,6 @@ def p_buff_group_def(p):
         arg_includes,
         order_by,
     )
-    # TypeChecker.insert_symbol(buffer_group_name, BUFFER_GROUP_NAME)
-    # TypeChecker.assert_symbol_type(stream_type, STREAM_TYPE_NAME)
-    # if includes is not None:
-    #     TypeChecker.assert_symbol_type(includes, EVENT_SOURCE_NAME)
-    # TypeChecker.add_buffer_group_data(p[0])
-
 
 def p_int_or_all(p):
     """
@@ -643,19 +615,13 @@ def p_match_fun_def(p):
         buffer_match_expr = p[10]
     p[0] = ("match_fun_def", match_fun_name, arg1, arg2, buffer_match_expr)
 
-    # TypeChecker.add_match_fun_data(p[0])
     if arg2 is not None:
         ids = []
         get_list_ids(arg2, ids)
-        # TypeChecker.insert_into_args_table(match_fun_name, MATCH_FUN_NAME, ids)
-    # else:
-    # TypeChecker.insert_symbol(match_fun_name, MATCH_FUN_NAME)
+        
     if arg1 is not None:
         ids = []
         get_list_ids(arg1, ids)
-        # TypeChecker.logical_copies[match_fun_name] = ids # TODO: maybe this should be in a diff. data structure
-        # for id in ids:
-        #     TypeChecker.insert_symbol(id, EVENT_SOURCE_NAME)
 
 
 # END advanced features
@@ -667,8 +633,6 @@ def p_arbiter_definition(p):
                        | ARBITER ':' ID '{' '}'
                        | ARBITER ':' ID '{' arbiter_rule_list '}'
     """
-
-    # TypeChecker.assert_symbol_type(p[ARBITER_OUTPUT_TYPE], STREAM_TYPE_NAME)
     if len(p) == 6:
         # | ARBITER ':' ID '{' '}'
         p[0] = ("arbiter_def", p[ARBITER_OUTPUT_TYPE], None)
@@ -838,7 +802,6 @@ def p_buffer_match_exp(p):
     """
 
     if p[2] == "[":
-        # TypeChecker.assert_symbol_type(p[1], MATCH_FUN_NAME)
         arg1 = None
         arg2 = None
         if len(p) == 7:
@@ -867,13 +830,9 @@ def p_buffer_match_exp(p):
             args = p[2]
             buffer_name = p[4]
         p[0] = ("buff_match_exp-choose", choose_order, args, buffer_name)
-        # TypeChecker.assert_symbol_type(p[4], BUFFER_GROUP_NAME)
     elif len(p) == 4:
-        # TypeChecker.assert_symbol_type(p[1][1], EVENT_SOURCE_NAME)
         p[0] = ("buff_match_exp", p[PBUFFER_MATCH_EV_NAME], p[PBUFFER_MATCH_ARG1])
     elif len(p) == 5:
-        # TODO: fix this check
-        # TypeChecker.assert_symbol_type(p[1][1], EVENT_SOURCE_NAME)
         p[0] = (
             "buff_match_exp",
             p[PBUFFER_MATCH_EV_NAME],
@@ -934,9 +893,6 @@ def p_list_event_calls(p):
                      | ID '(' ')' list_event_calls
                      | ID '(' listids  ')' list_event_calls
     """
-
-    # TODO: what is E^H
-    # TypeChecker.assert_symbol_type(p[PLIST_EV_CALL_EV_NAME], EVENT_NAME)
     if len(p) == 4:
         # ID '(' ')'
         p[0] = ("ev_call", p[PLIST_EV_CALL_EV_NAME], None)
@@ -947,8 +903,6 @@ def p_list_event_calls(p):
         else:
             # ID '(' listids ')'
             p[0] = ("ev_call", p[PLIST_EV_CALL_EV_NAME], p[PLIST_EV_CALL_EV_PARAMS])
-            list_ids_length = get_count_list_ids(p[PLIST_EV_CALL_EV_PARAMS])
-            # TypeChecker.assert_num_args_match(p[PLIST_EV_CALL_EV_NAME], list_ids_length)
     else:
         assert len(p) == 6
         # ID '(' listids  ')' list_event_calls
@@ -958,8 +912,6 @@ def p_list_event_calls(p):
             p[PLIST_EV_CALL_EV_PARAMS],
             p[PLIST_EV_CALL_TAIL],
         )
-        list_ids_length = get_count_list_ids(p[PLIST_EV_CALL_EV_PARAMS])
-        # TypeChecker.assert_num_args_match(p[PLIST_EV_CALL_EV_NAME], list_ids_length)
 
 
 def p_arbiter_rule_stmt_list(p):
@@ -1030,16 +982,11 @@ def p_arbiter_rule_stmt(p):
         else:
             assert len(p) == 5
             p[0] = ("yield", p[PARB_RULE_STMT_YIELD_EVENT], None)
-        # TypeChecker.assert_symbol_type(p[PARB_RULE_STMT_YIELD_EVENT], EVENT_NAME)
-        # count_expr_list = get_count_list_expr(p[PARB_RULE_STMT_YIELD_EXPRS])
-        # TypeChecker.assert_num_args_match(p[PARB_RULE_STMT_YIELD_EVENT], count_expr_list)
     elif p[1] == "add" or p[1] == "remove":
         p[0] = (p[1], p[2], p[4])
     elif len(p) == 5:
         assert p[1] == "drop"
         p[0] = ("drop", p[PARB_RULE_STMT_DROP_INT], p[PARB_RULE_STMT_DROP_EV_SOURCE])
-        event_source_name = p[PARB_RULE_STMT_DROP_EV_SOURCE][1]
-        # TypeChecker.assert_symbol_type(event_source_name, EVENT_SOURCE_NAME)
     elif len(p) == 2:
         if p[0] == "continue":
             p[0] = "continue"
@@ -1106,9 +1053,6 @@ def p_monitor_rule(p):
         listids = p[4]
         expression = p[8]
         code = p[10]
-    # TypeChecker.assert_symbol_type(p[PMONITOR_RULE_EV_NAME], EVENT_NAME)
-    # if listids:
-    # TypeChecker.assert_num_args_match(p[PMONITOR_RULE_EV_NAME], get_count_list_ids(p[PMONITOR_RULE_EV_ARGS]))
     p[0] = ("monitor_rule", p[2], listids, expression, code)
 
 

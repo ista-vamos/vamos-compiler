@@ -44,13 +44,12 @@ args = parser.parse_args()
 bufsize = args.bufsize
 
 input_file = args.inputfile  # second argument should be input file
-parsed_args_file = replace_cmd_args(open(input_file).readlines(), bufsize)
-file = " ".join(parsed_args_file)
+parsed_args_file = replace_cmd_args(open(input_file).readlines(), bufsize) # replace @BUFSIZE with the actual size
+file = " ".join(parsed_args_file) # creates a single string
 
 
 # Type checker initialization
 TypeChecker.clean_checker()
-TypeChecker.add_reserved_keywords()
 
 # Parser
 ast = parse_program(file)
@@ -75,12 +74,7 @@ if "match_fun_def" in components.keys():
     for match_fun in components["match_fun_def"]:
         TypeChecker.add_match_fun_data(match_fun)
 
-# TypeChecker.check_arbiter(ast[-2])
-# TypeChecker.check_monitor(ast[-1])
-#
-# Produce C file
 
-#
 streams_to_events_map = get_stream_to_events_mapping(
     components["stream_type"], TypeChecker.stream_processors_data
 )

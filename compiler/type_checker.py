@@ -45,6 +45,7 @@ class TypeChecker:
     def clean_checker():
         TypeChecker.symbol_table = dict()
         TypeChecker.args_table = dict()
+        TypeChecker.add_reserved_keywords()
 
     @staticmethod
     def get_stream_events(stream_types):

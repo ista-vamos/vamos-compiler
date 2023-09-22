@@ -107,22 +107,6 @@ def get_stream_struct_fields(field_declarations):
     return struct_fields
 
 
-def stream_arg_structs(stream_types) -> str:
-    answer = ""
-    for tree in stream_types:
-        assert tree[0] == "stream_type"
-        if tree[2] is not None:
-            struct_fields = get_stream_struct_fields(tree[2])
-            answer += f"""
-// args for stream type {tree[1]}
-struct _{tree[1]}_ARGS {"{"}
-{struct_fields}
-{"}"}
-typedef struct  _{tree[1]}_ARGS  {tree[1]}_ARGS;
-            """
-    return answer
-
-
 def events_declaration_structs(stream_name, tree) -> str:
     if tree[0] == "event_list":
         return (
@@ -271,7 +255,7 @@ def initialize_stream_args():
     return answer
 
 
-def stream_type_structs(stream_types) -> str:
+def stream_type_structs() -> str:
     answer = ""
     # union_events += f"EVENT_{hole_name}_hole {hole_name};"
     special_holes = ""
@@ -338,17 +322,6 @@ def define_signal_handlers(event_sources):
             answer += f"\tshm_stream_detach(EV_SOURCE_{name});\n"
     answer += "\t__work_done = 1;\n}"
     return answer
-
-
-def declare_event_sources_flags(ast):
-    assert ast[0] == "main_program"
-    event_srcs_names = []
-    get_event_sources_names(ast[PMAIN_PROGRAM_EVENT_SOURCES], event_srcs_names)
-    answer = ""
-    for name in event_srcs_names:
-        answer += f"bool is_{name}_done;\n"
-    return answer
-
 
 def stream_type_from_ev_source(event_source):
     stream_type = event_source[3]
@@ -1088,7 +1061,6 @@ def construct_arb_rule_outevent(
 def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
     if tree[0] == "switch":
         switch_rule_name = tree[PPARB_RULE_STMT_SWITCH_ARB_RULE]
-        # TypeChecker.assert_symbol_type(switch_rule_name, ARBITER_RULE_SET)
         return f"current_rule_set = SWITCH_TO_RULE_SET_{switch_rule_name};\n"
     if tree[0] == "yield":
         return f"""
@@ -2080,7 +2052,7 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
 {"}"}
 {events_enum_kinds(components["event_source"], streams_to_events_map)}
 {special_hole_structs()}
-{stream_type_structs(components["stream_type"])}
+{stream_type_structs()}
 {generate_special_hole_functions(streams_to_events_map)}
 
 {stream_type_args_structs(components["stream_type"])}
