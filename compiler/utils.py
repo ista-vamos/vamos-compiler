@@ -209,7 +209,15 @@ def get_name_with_args(tree: Tuple):
         return tree, []
 
 
-def get_name_args_count(tree: Tuple):
+def get_name_args_count(tree: Tuple) -> (str, int):
+    """
+
+    Args:
+        tree (Tuple): a name-with-args token
+
+    Returns:
+        _type_: returns an ID (str) and the count of arguments between parenthesis that follows this name
+    """    
     if tree[0] == "name-with-args":
         args = []
         if tree[2] is None:
@@ -231,14 +239,14 @@ def get_list_from_tree(tree: Tuple, result: List[Tuple]) -> None:
         result (List[Tuple]): _description_
     """ 
     if tree is not None:
-        if tree[0] in ["listids", "list_var_or_integer", "expr_list"]:
+        if tree[0] in ["listids", "list_var_or_integer", "expr_list", "l-ev-src-status", "arb_rule_set_l", "list_ev_calls"]:
             get_list_from_tree(tree[PLIST_BASE_CASE], result)
             get_list_from_tree(tree[PLIST_TAIL], result)
         else:
             if type(tree) == str:
                 result.append(tree)
             else:
-                assert tree[0] in ["ID", "expr", "field_decl"]
+                assert tree[0] in ["ID", "expr", "field_decl", "ev-src-status", "arbiter_rule_set", "ev_call"]
                 result.append(tree[PLIST_DATA]) 
 
 
@@ -252,7 +260,9 @@ def count_tree_list_elements(tree: Tuple) -> int:
         int: count of the number of expressions
     """    
     expressions = []
-    return len(get_list_from_tree(tree, expressions))
+    get_list_from_tree(tree, expressions)
+    return len(expressions)
+
 
 
 def is_type_primitive(tree: Tuple) -> bool:
@@ -392,17 +402,6 @@ def get_event_sources_copies(event_sources: Tuple) -> List[Tuple[str, int]]:
             copies = int(event_src_declaration[2])
         result.append((name, copies))
     return result
-
-
-def get_rule_set_names(tree: Tuple, names: List[str]) -> None:
-    if tree is not None:
-        if tree[0] == "arb_rule_set_l":
-            get_rule_set_names(tree[PLIST_BASE_CASE], names)
-            get_rule_set_names(tree[PLIST_TAIL], names)
-        else:
-            assert tree[0] == "arbiter_rule_set"
-            names.append(tree[PPARB_RULE_SET_NAME])
-
 
 def get_count_events_from_list_calls(tree: Tuple) -> int:
     assert tree[0] != "|"
@@ -546,15 +545,6 @@ def get_buff_math_binded_args(
                 ):
                     stream_types[arg] = (t, t)
 
-
-def get_events_count(tree: Tuple) -> int:
-    if tree[0] == "list_ev_calls":
-        return 1 + get_events_count(tree[PPLIST_EV_CALL_TAIL])
-    else:
-        assert tree[0] == "ev_call"
-        return 1
-
-
 def get_num_events_to_retrieve(
     tree: Tuple, events_to_retrieve: Dict[str, int], match_fun_data: Dict[str, Dict]
 ) -> None:
@@ -571,7 +561,7 @@ def get_num_events_to_retrieve(
             if len(tree) > 3:
                 for i in range(2, len(tree)):
                     if tree[i] != "|":
-                        count = get_events_count(tree[i])
+                        count = count_tree_list_elements(tree[i])
                         events_to_retrieve[event_source_name] = count
         else:
             if tree[0] == "buff_match_exp-args":
@@ -642,15 +632,6 @@ def insert_in_result(
             result[buffer_name] = count
 
 
-def get_stream_status(tree, result):
-    if tree[0] == "l-ev-src-status":
-        get_stream_status(tree[1], result)
-        get_stream_status(tree[2], result)
-    else:
-        assert tree[0] == "ev-src-status"
-        result.append(tree[1])
-
-
 def local_get_buffer_peeks(
     local_tree: Tuple,
     type_checker: Any,
@@ -674,7 +655,7 @@ def local_get_buffer_peeks(
             assert local_tree[0] == "buff_match_exp"
             if len(local_tree) == 3:
                 all_status = []
-                get_stream_status(local_tree[-1], all_status)
+                get_list_from_tree(local_tree[-1], all_status)
                 event_src_ref = local_tree[1]
                 event_src_name = event_src_ref[1]
                 if event_src_ref[2] is not None:
@@ -743,7 +724,7 @@ def get_first_const_rule_set_name(tree: Tuple) -> str:
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
     if len(rule_set_names):
         return f"SWITCH_TO_RULE_SET_{rule_set_names[0]}"
     else:

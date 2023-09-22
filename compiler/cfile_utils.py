@@ -773,7 +773,7 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
 def declare_rule_sets(tree):
     assert tree[0] == "arbiter_def"
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     rule_set_declarations = ""
     for name in rule_set_names:
@@ -817,7 +817,7 @@ def arbiter_code(tree, components, existing_buffers, args):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     rule_set_invocations = ""
     for name in rule_set_names:
@@ -1829,7 +1829,7 @@ def declare_const_rule_set_names(tree):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     ans = ""
     for (index, name) in enumerate(rule_set_names):
@@ -1841,7 +1841,7 @@ def declare_rule_set_counters(tree):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     ans = ""
     for (index, name) in enumerate(rule_set_names):

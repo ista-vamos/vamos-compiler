@@ -717,7 +717,7 @@ def p_arbiter_rule(p):
             #   1       2            3               4          5          6
             middle_part = p[3]
             p[0] = ("arbiter_rule2", None, p[2], middle_part[1], middle_part[2], p[5])
-            choose_count = get_list_from_tree(p[2])
+            choose_count = count_tree_list_elements(p[2])
 
     if choose_count is not None:
         TypeChecker.max_choose_size = max(TypeChecker.max_choose_size, choose_count)
