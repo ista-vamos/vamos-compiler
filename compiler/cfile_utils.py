@@ -2180,7 +2180,7 @@ thrd_t ARBITER_THREAD;
 {declare_const_rule_set_names(ast[2])}
 
 
-{declare_rule_set_counters(ast[2])} # MAREK knows
+{declare_rule_set_counters(ast[2])} // MAREK knows
 
 
 int current_rule_set = {get_first_const_rule_set_name(ast[2])}; // initial arbiter rule set
@@ -2338,7 +2338,7 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, components, args)}
 {arbiter_code(ast[2], components, existing_buffers, args)}
 
-{define_signal_handlers()} MAREK knows
+{define_signal_handlers()} // MAREK knows
 
 static void setup_signals() {{
     // MAREK knows
