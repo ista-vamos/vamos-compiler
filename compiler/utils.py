@@ -110,7 +110,7 @@ def get_custom_hole_attrs(tree: Tuple) -> List[Dict[str, str]]:
                 "type", "attribute","agg_func_name","agg_func_params"
     """    
     if tree[0] == "l-hole-attributes":
-        get_custom_hole_attrs(tree[1]) + get_custom_hole_attrs(tree[2])
+        return get_custom_hole_attrs(tree[1]) + get_custom_hole_attrs(tree[2])
     else:
         assert tree[0] == "hole-attribute"
         attribute_type = tree[1]
