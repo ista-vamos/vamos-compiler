@@ -258,7 +258,7 @@ def get_list_from_tree(tree: Tuple, result: List[Tuple]) -> None:
             get_list_from_tree(tree[PLIST_BASE_CASE], result)
             get_list_from_tree(tree[PLIST_TAIL], result)
         else:
-            if type(tree) == str:
+            if (type(tree) == str) or (tree[0] == "field_decl"):
                 result.append(tree)
             else:
                 assert tree[0] in ["ID", "expr", "field_decl", "ev-src-status", "arbiter_rule_set", "ev_call"]

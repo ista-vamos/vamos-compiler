@@ -664,7 +664,7 @@ def get_creates_code(case, out_name, event_name, event_args) -> str:
     original_sp_args = TypeChecker.stream_processors_data[
         stream_processor_name
     ]["output_args"]
-    stream_type_args = TypeChecker.args_table[stream_type]    
+    stream_type_args = TypeChecker.args_table[stream_type] 
     for (original_arg, new_arg) in zip(
         TypeChecker.args_table[stream_processor_name],
         case["process_using_args"],
