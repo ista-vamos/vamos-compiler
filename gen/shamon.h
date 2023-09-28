@@ -14,11 +14,11 @@
  * The high-level workflow is as follows:
  *
  *  // create a stream -- stream specific
- *  shm_stream *stream = shm_stream_XXX_create(...);
+ *  vms_stream *stream = vms_stream_XXX_create(...);
  *
  *  // create the arbiter's buffer
- *  shm_arbiter_buffer buffer.
- *  shm_arbiter_buffer_init(&buffer, stream,
+ *  vms_arbiter_buffer buffer.
+ *  vms_arbiter_buffer_init(&buffer, stream,
  *                          ... output event size...,
  *                          ... buffer's capacity...);
  *
@@ -28,24 +28,24 @@
  *
  *  // let the thread know that the buffer is ready (optional,
  *  // depends on the thread's code)
- *  shm_arbiter_buffer_set_active(buffer, true);
+ *  vms_arbiter_buffer_set_active(buffer, true);
  *
  *  // the main loop
  *  while (true) {
- *    avail_events_num = shm_arbiter_buffer_size(buffer);
+ *    avail_events_num = vms_arbiter_buffer_size(buffer);
  *    if (avail_events_num > 0) {
  *        if (avail_events_num > ... some threshold ...) {
  *            // summarize half of the buffer
- *            shm_eventid id = shm_event_id(shm_arbiter_buffer_top(buffer));
+ *            vms_eventid id = vms_event_id(vms_arbiter_buffer_top(buffer));
  *            void *data1, *data2;
  *            size_t size1, size2, n;
- *            n = shm_arbiter_buffer_peek(&buffer, c/2,
+ *            n = vms_arbiter_buffer_peek(&buffer, c/2,
  *                                        &data1, &size1,
  *                                        &data2, &size2);
  *            summary_event_type summary;
- *            size_t element_size = shm_arbiter_buffer_elem_size(buffer);
+ *            size_t element_size = vms_arbiter_buffer_elem_size(buffer);
  *            for (size_t i = 0; i < size1; ++i) {
- *               if (shm_event_is_hole((shm_event*)data1) {
+ *               if (vms_event_is_hole((vms_event*)data1) {
  *                   ... update summary ...
  *               } else {
  *                   right_event_type *ev = (right_event_type*)data1;
@@ -57,12 +57,12 @@
  *                ... process data2 too ...
  *            }
  *
- *            shm_arbiter_buffer_drop(buffer, n);
+ *            vms_arbiter_buffer_drop(buffer, n);
  *            __monitor_send(&summary, ...);
  *        }
  *
- *        __monitor_send(shm_arbiter_buffer_top(buffer), ...);
- *        shm_arbiter_buffer_drop(buffer, 1);
+ *        __monitor_send(vms_arbiter_buffer_top(buffer), ...);
+ *        vms_arbiter_buffer_drop(buffer, 1);
  *    } else {
  *      ... sleep for a while? ...
  *  }
@@ -72,11 +72,11 @@
  * // The code for the thread that buffers events can look like this:
  *
  * int buffer_manager_thrd(void *data) {
- *  shm_arbiter_buffer *buffer = (shm_arbiter_buffer*) data;
- *  shm_stream *stream = shm_arbiter_buffer_stream(buffer);
+ *  vms_arbiter_buffer *buffer = (vms_arbiter_buffer*) data;
+ *  vms_stream *stream = vms_arbiter_buffer_stream(buffer);
  *
  *  // wait until the buffer is active
- *  while (!shm_arbiter_buffer_active(buffer))
+ *  while (!vms_arbiter_buffer_active(buffer))
  *      _mm_pause();
  *
  *  void *ev, *out;
@@ -86,25 +86,25 @@
  *          break;  // stream ended
  *      }
  *      if (filter && !filter(stream, ev)) {
- *          shm_stream_consume(stream, 1);
+ *          vms_stream_consume(stream, 1);
  *          continue;
  *      }
  *
- *      out = shm_arbiter_buffer_write_ptr(buffer);
+ *      out = vms_arbiter_buffer_write_ptr(buffer);
  *      copy_and_maybe_alter(stream, ev, out);
- *      shm_arbiter_buffer_write_finish(buffer);
- *      shm_stream_consume(stream, 1);
+ *      vms_arbiter_buffer_write_finish(buffer);
+ *      vms_stream_consume(stream, 1);
  *  }
  *
  *  thrd_exit(EXIT_SUCCESS);
  * }
  */
 
-typedef uint64_t shm_kind;
-typedef uint64_t shm_eventid;
-typedef struct _shm_event shm_event;
-typedef struct _shm_stream shm_stream;
-typedef struct _shm_arbiter_buffer shm_arbiter_buffer;
+typedef uint64_t vms_kind;
+typedef uint64_t vms_eventid;
+typedef struct _vms_event vms_event;
+typedef struct _vms_stream vms_stream;
+typedef struct _vms_arbiter_buffer vms_arbiter_buffer;
 
 /************************************************************************
  * EVENTS
@@ -116,36 +116,36 @@ void initialize_events(void);
 /* called from shamon_destroy */
 void deinitialize_events(void);
 
-shm_kind shm_mk_event_kind(const char *name, size_t event_size,
+vms_kind vms_mk_event_kind(const char *name, size_t event_size,
                            const char *signature);
-const char *shm_event_kind_name(shm_kind kind);
+const char *vms_event_kind_name(vms_kind kind);
 
-shm_eventid shm_event_id(shm_event *event);
-size_t shm_event_size(shm_event *event);
-shm_kind shm_event_kind(shm_event *event);
-size_t shm_event_size_for_kind(shm_kind kind);
+vms_eventid vms_event_id(vms_event *event);
+size_t vms_event_size(vms_event *event);
+vms_kind vms_event_kind(vms_event *event);
+size_t vms_event_size_for_kind(vms_kind kind);
 
-bool shm_event_is_hole(shm_event *);
-shm_kind shm_get_hole_kind(void);
+bool vms_event_is_hole(vms_event *);
+vms_kind vms_event_get_hole_kind(void);
 
 /************************************************************************
  * STREAMS
  ************************************************************************/
 
-typedef bool (*shm_stream_filter_fn)(shm_stream *, shm_event *);
-typedef void (*shm_stream_alter_fn)(shm_stream *, shm_event *, shm_event *);
+typedef bool (*vms_stream_filter_fn)(vms_stream *, vms_event *);
+typedef void (*vms_stream_alter_fn)(vms_stream *, vms_event *, vms_event *);
 
-const char *shm_stream_get_name(shm_stream *);
-bool shm_stream_consume(shm_stream *stream, size_t num);
-const char *shm_stream_get_str(shm_stream *stream, uint64_t elem);
+const char *vms_stream_get_name(vms_stream *);
+bool vms_stream_consume(vms_stream *stream, size_t num);
+const char *vms_stream_get_str(vms_stream *stream, uint64_t elem);
 
-shm_stream *shm_stream_create_from_argv(
+vms_stream *vms_stream_create_from_argv(
     const char *name, int argc, char *argv[],
-    shm_stream_hole_handling *hole_handling);
+    vms_stream_hole_handling *hole_handling);
 
-shm_stream *shm_stream_create(const char *name, const char *spec);
+vms_stream *vms_stream_create(const char *name, const char *spec);
 
-int shm_stream_register_event(shm_stream *, const char *name, shm_kind);
+int vms_stream_register_event(vms_stream *, const char *name, vms_kind);
 
 /************************************************************************
  * ARBITER BUFFER
@@ -155,39 +155,39 @@ int shm_stream_register_event(shm_stream *, const char *name, shm_kind);
  * (or NULL if the event was dropped or there is none). \param buffer
  * is taken only to handle dropping events, the next event on the stream
  * is not queued there by this function */
-void *stream_fetch(shm_stream *stream, shm_arbiter_buffer *buffer);
+void *stream_fetch(vms_stream *stream, vms_arbiter_buffer *buffer);
 
-void shm_arbiter_buffer_init(shm_arbiter_buffer *buffer, shm_stream *stream,
+void vms_arbiter_buffer_init(vms_arbiter_buffer *buffer, vms_stream *stream,
                              size_t out_event_size, size_t capacity);
-shm_arbiter_buffer *shm_arbiter_buffer_create(shm_stream *stream,
+vms_arbiter_buffer *vms_arbiter_buffer_create(vms_stream *stream,
                                               size_t out_event_size,
                                               size_t capacity);
-void shm_arbiter_buffer_free(shm_arbiter_buffer *buffer);
-void shm_arbiter_buffer_destroy(shm_arbiter_buffer *buffer);
-void shm_arbiter_buffer_set_active(shm_arbiter_buffer *buffer, bool val);
-size_t shm_arbiter_buffer_elem_size(shm_arbiter_buffer *q);
-shm_stream *shm_arbiter_buffer_stream(shm_arbiter_buffer *buffer);
-bool shm_arbiter_buffer_active(shm_arbiter_buffer *buffer);
-size_t shm_arbiter_buffer_size(shm_arbiter_buffer *buffer);
-size_t shm_arbiter_buffer_capacity(shm_arbiter_buffer *buffer);
-size_t shm_arbiter_buffer_free_space(shm_arbiter_buffer *buffer);
+void vms_arbiter_buffer_free(vms_arbiter_buffer *buffer);
+void vms_arbiter_buffer_destroy(vms_arbiter_buffer *buffer);
+void vms_arbiter_buffer_set_active(vms_arbiter_buffer *buffer, bool val);
+size_t vms_arbiter_buffer_elem_size(vms_arbiter_buffer *q);
+vms_stream *vms_arbiter_buffer_stream(vms_arbiter_buffer *buffer);
+bool vms_arbiter_buffer_active(vms_arbiter_buffer *buffer);
+size_t vms_arbiter_buffer_size(vms_arbiter_buffer *buffer);
+size_t vms_arbiter_buffer_capacity(vms_arbiter_buffer *buffer);
+size_t vms_arbiter_buffer_free_space(vms_arbiter_buffer *buffer);
 
 /* writer's API */
-void shm_arbiter_buffer_push(shm_arbiter_buffer *q, const void *elem,
+void vms_arbiter_buffer_push(vms_arbiter_buffer *q, const void *elem,
                              size_t size);
 
-void *shm_arbiter_buffer_write_ptr(shm_arbiter_buffer *q);
-void shm_arbiter_buffer_write_finish(shm_arbiter_buffer *q);
-void shm_arbiter_buffer_get_str(shm_arbiter_buffer *q, size_t elem);
+void *vms_arbiter_buffer_write_ptr(vms_arbiter_buffer *q);
+void vms_arbiter_buffer_write_finish(vms_arbiter_buffer *q);
+void vms_arbiter_buffer_get_str(vms_arbiter_buffer *q, size_t elem);
 
 /* reader's API */
 /* multiple threads can use top and peek if none of them uses drop/pop
  * at possibly the same time */
-shm_event *shm_arbiter_buffer_top(shm_arbiter_buffer *buffer);
-size_t shm_arbiter_buffer_peek(shm_arbiter_buffer *buffer, size_t n,
+vms_event *vms_arbiter_buffer_top(vms_arbiter_buffer *buffer);
+size_t vms_arbiter_buffer_peek(vms_arbiter_buffer *buffer, size_t n,
                                void **data1, size_t *size1, void **data2,
                                size_t *size2);
-size_t shm_arbiter_buffer_drop(shm_arbiter_buffer *buffer, size_t n);
-bool shm_arbiter_buffer_pop(shm_arbiter_buffer *q, void *buff);
+size_t vms_arbiter_buffer_drop(vms_arbiter_buffer *buffer, size_t n);
+bool vms_arbiter_buffer_pop(vms_arbiter_buffer *q, void *buff);
 
 #endif  // SHAMON_H_

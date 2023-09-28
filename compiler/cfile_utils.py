@@ -275,7 +275,7 @@ def stream_type_structs() -> str:
 
 // input stream for stream type {stream_name}
 struct _STREAM_{stream_name}_in {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         {union_events}
     {"}"}cases;
@@ -284,7 +284,7 @@ typedef struct _STREAM_{stream_name}_in STREAM_{stream_name}_in;
 
 // output stream for stream processor {stream_name}
 struct _STREAM_{stream_name}_out {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         EVENT_hole hole;
         {union_events}
@@ -305,9 +305,9 @@ def declare_event_sources() -> str:
     for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
-                answer += f"shm_stream *EV_SOURCE_{name}_{i};\n"
+                answer += f"vms_stream *EV_SOURCE_{name}_{i};\n"
         else:
-            answer += f"shm_stream *EV_SOURCE_{name};\n"
+            answer += f"vms_stream *EV_SOURCE_{name};\n"
     return answer
 
 
@@ -319,9 +319,9 @@ def define_signal_handlers():
     for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
-                answer += f"\tshm_stream_detach(EV_SOURCE_{name}_{i});\n"
+                answer += f"\tvms_stream_detach(EV_SOURCE_{name}_{i});\n"
         else:
-            answer += f"\tshm_stream_detach(EV_SOURCE_{name});\n"
+            answer += f"\tvms_stream_detach(EV_SOURCE_{name});\n"
     answer += "\t__work_done = 1;\n}"
     return answer
 
@@ -379,50 +379,50 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
                 name = f"{stream_name}_{i}"
                 answer += f"\t// connect to event source {name}\n"
                 answer += f"""
-                shm_stream_hole_handling hh_{name} = {{
+                vms_stream_hole_handling hh_{name} = {{
                   .hole_event_size = sizeof({out_event}),
                   .init = &init_hole_{hole_name},
                   .update = &update_hole_{hole_name}
                 }};\n
                 """
-                answer += f'\tEV_SOURCE_{name} = shm_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
+                answer += f'\tEV_SOURCE_{name} = vms_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
                 answer += f"\tif (!EV_SOURCE_{name}) {{\n"
                 answer += f'\t\tfprintf(stderr, "Failed creating stream {name}\\n");'
                 answer += "\tabort();}\n"
-                answer += f"\tBUFFER_{stream_name}{i} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
+                answer += f"\tBUFFER_{stream_name}{i} = vms_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
                 if min_size_uninterrupt is not None:
-                    answer += f"\tshm_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name}{i},{min_size_uninterrupt});\n"
+                    answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name}{i},{min_size_uninterrupt});\n"
                 answer += f"\t// register events in {name}\n"
                 for ev_name, attrs in streams_to_events_map[stream_type].items():
                     if ev_name in ("hole", hole_name):
                         continue
-                    answer += f"\tif (shm_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
+                    answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
                     answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
                     answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
-                    answer += f"\t\tshm_stream_dump_events(EV_SOURCE_{name});\n"
+                    answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                     answer += f"\t\tabort();\n\t}}\n"
         else:
             name = f"{stream_name}"
             answer += f"\t// connect to event source {name}\n"
             answer += f"""
-                shm_stream_hole_handling hh_{name} = {{
+                vms_stream_hole_handling hh_{name} = {{
                   .hole_event_size = sizeof({out_event}),
                   .init = &init_hole_{hole_name},
                   .update = &update_hole_{hole_name}
                 }};\n
                 """
-            answer += f'\tEV_SOURCE_{name} = shm_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
-            answer += f"\tBUFFER_{stream_name} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
+            answer += f'\tEV_SOURCE_{name} = vms_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
+            answer += f"\tBUFFER_{stream_name} = vms_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
             if min_size_uninterrupt is not None:
-                answer += f"\tshm_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
+                answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
             answer += f"\t// register events in {name}\n"
             for ev_name, attrs in streams_to_events_map[stream_type].items():
                 if ev_name in ("hole", hole_name):
                     continue
-                answer += f"\tif (shm_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
+                answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
                 answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
                 answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
-                answer += f"\t\tshm_stream_dump_events(EV_SOURCE_{name});\n"
+                answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                 answer += f"\t\tabort();\n\t}}\n"
 
     return answer
@@ -456,11 +456,11 @@ def declare_arbiter_buffers(components, ast) -> str:
     for (name, copies) in event_srcs_names:
         if copies == 0:
             answer += f"// Arbiter buffer for event source {name}\n"
-            answer += f"shm_arbiter_buffer *BUFFER_{name};\n\n"
+            answer += f"vms_arbiter_buffer *BUFFER_{name};\n\n"
         else:
             for i in range(copies):
                 answer += f"// Arbiter buffer for event source {name} ({i})\n"
-                answer += f"shm_arbiter_buffer *BUFFER_{name}{i};\n\n"
+                answer += f"vms_arbiter_buffer *BUFFER_{name}{i};\n\n"
     return answer
 
 
@@ -489,9 +489,9 @@ def activate_buffers() -> str:
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}{i}"
-                answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{name}, true);\n"
+                answer += f"\tvms_arbiter_buffer_set_active(BUFFER_{name}, true);\n"
         else:
-            answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{event_source}, true);\n"
+            answer += f"\tvms_arbiter_buffer_set_active(BUFFER_{event_source}, true);\n"
     return answer
 
 
@@ -546,7 +546,7 @@ def build_should_keep_funcs(mapping) -> str:
         str: C code of filters for stream processes
     """    
     answer = f"""
-bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
+bool SHOULD_KEEP_forward(vms_stream * s, vms_event * e) {"{"}
     return true;
 {"}"}
 """
@@ -559,7 +559,7 @@ bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
             extend_processor_name = "forward"
         if extend_processor_name.lower() == "forward":
             extend_processor_name = extend_processor_name.lower()
-        answer += f"""bool SHOULD_KEEP_{stream_processor}(shm_stream * s, shm_event * inevent) {"{"}
+        answer += f"""bool SHOULD_KEEP_{stream_processor}(vms_stream * s, vms_event * inevent) {"{"}
     // function for stream {stream_processor} that determines whether an event should be forwarded
 {build_drop_funcs_conds(performance_layer_rule_list, stream_type, mapping[stream_type])}
     return SHOULD_KEEP_{extend_processor_name}(s, inevent);
@@ -627,7 +627,7 @@ def build_switch_performance_match_case(
             return f"""
 
 {tabs}{assign_args_code}
-{tabs}shm_arbiter_buffer_write_finish(buffer);
+{tabs}vms_arbiter_buffer_write_finish(buffer);
             """
     else:
         assert tree[0] == "perf_match2"
@@ -689,30 +689,30 @@ mtx_unlock(&LOCK_{buffer_group});
     stream_threshold_code = f""
     min_size_uninterrupt = case["connection_kind"]["threshold"]
     if min_size_uninterrupt > 2:
-        stream_threshold_code = f"\tshm_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n" # MAREK knows
+        stream_threshold_code = f"\tvms_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n" # MAREK knows
 
     hole_name = TypeChecker.stream_processors_data[stream_processor_name][
         "hole_name"
     ]
     out_event = f"STREAM_{stream_type}_out"
     creates_code = f"""
-            shm_stream_hole_handling hole_handling = {{
+            vms_stream_hole_handling hole_handling = {{
               .hole_event_size = sizeof({out_event}),
               .init = &init_hole_{hole_name},
               .update = &update_hole_{hole_name}
             }};
-            shm_stream *ev_source_temp = shm_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);
+            vms_stream *ev_source_temp = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);
             if (!ev_source_temp) {{
                 fprintf(stderr, "Failed creating substream for '{out_name}'\\n");
                 abort();
             }}
-            shm_arbiter_buffer *temp_buffer = shm_arbiter_buffer_create(ev_source_temp,  sizeof(STREAM_{out_name}_out), {buff_size});
+            vms_arbiter_buffer *temp_buffer = vms_arbiter_buffer_create(ev_source_temp,  sizeof(STREAM_{out_name}_out), {buff_size});
             {stream_threshold_code}
-            shm_stream_register_all_events(ev_source_temp);
+            vms_stream_register_all_events(ev_source_temp);
             {stream_args_code}
             thrd_t temp_thread;
             thrd_create(&temp_thread, (void*)PERF_LAYER_{stream_processor_name}, temp_buffer);
-            shm_arbiter_buffer_set_active(temp_buffer, true);
+            vms_arbiter_buffer_set_active(temp_buffer, true);
             """
     return creates_code
 
@@ -757,15 +757,15 @@ def declare_perf_layer_funcs(mapping) -> str:
 
     for stream_type in TypeChecker.stream_types_data.keys():
         answer += f"""
-int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
+int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
     // this function forwards everything
     atomic_fetch_add(&count_event_streams, 1); 
-    shm_stream *stream = shm_arbiter_buffer_stream(buffer);   
+    vms_stream *stream = vms_arbiter_buffer_stream(buffer);   
     void *inevent;
     void *outevent;   
 
     // wait for active buffer
-    while ((!shm_arbiter_buffer_active(buffer))){"{"}
+    while ((!vms_arbiter_buffer_active(buffer))){"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
@@ -775,12 +775,12 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
             // no more events
             break;
         {"}"}
-        outevent = shm_arbiter_buffer_write_ptr(buffer);
+        outevent = vms_arbiter_buffer_write_ptr(buffer);
 
         memcpy(outevent, inevent, sizeof(STREAM_{stream_type}_in));
-        shm_arbiter_buffer_write_finish(buffer);
+        vms_arbiter_buffer_write_finish(buffer);
         
-        shm_stream_consume(stream, 1);
+        vms_stream_consume(stream, 1);
     {"}"}  
     atomic_fetch_add(&count_event_streams, -1);
     return 0;   
@@ -796,17 +796,17 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
                     default:
                         // by default we just forward the event
                         memcpy(outevent, inevent, sizeof(STREAM_{stream_in_name}_in));   
-                        shm_arbiter_buffer_write_finish(buffer);
+                        vms_arbiter_buffer_write_finish(buffer);
                 {"}"}
                     """
-        answer += f"""int PERF_LAYER_{stream_processor} (shm_arbiter_buffer *buffer) {"{"}
+        answer += f"""int PERF_LAYER_{stream_processor} (vms_arbiter_buffer *buffer) {"{"}
         atomic_fetch_add(&count_event_streams, 1); 
-    shm_stream *stream = shm_arbiter_buffer_stream(buffer);   
+    vms_stream *stream = vms_arbiter_buffer_stream(buffer);   
     STREAM_{stream_in_name}_in *inevent;
     STREAM_{stream_out_name}_out *outevent;   
 
     // wait for active buffer
-    while ((!shm_arbiter_buffer_active(buffer))){"{"}
+    while ((!vms_arbiter_buffer_active(buffer))){"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
@@ -816,11 +816,11 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
             // no more events
             break;
         {"}"}
-        outevent = shm_arbiter_buffer_write_ptr(buffer);
+        outevent = vms_arbiter_buffer_write_ptr(buffer);
 
         {perf_layer_code}
         
-        shm_stream_consume(stream, 1);
+        vms_stream_consume(stream, 1);
     {"}"}  
     atomic_fetch_add(&count_event_streams, -1);   
     return 0;
@@ -847,10 +847,10 @@ def are_buffers_done():
         copies = data["copies"]
         if copies:
             for i in range(copies):
-                code += f"\tif (!shm_arbiter_buffer_is_done(BUFFER_{event_source}{i})) return 0;\n"
+                code += f"\tif (!vms_arbiter_buffer_is_done(BUFFER_{event_source}{i})) return 0;\n"
         else:
             code += (
-                f"\tif (!shm_arbiter_buffer_is_done(BUFFER_{event_source})) return 0;\n"
+                f"\tif (!vms_arbiter_buffer_is_done(BUFFER_{event_source})) return 0;\n"
             )
 
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
@@ -861,7 +861,7 @@ def are_buffers_done():
     is_selection_successful = bg_get_first_n(&BG_{buffer_group}, 1, &chosen_streams);
     mtx_unlock(&LOCK_{buffer_group});
     for (int i = 0; i < BG_{buffer_group}_size; i++) {"{"}
-        if (!shm_arbiter_buffer_is_done(chosen_streams[i]->buffer)) return 0;
+        if (!vms_arbiter_buffer_is_done(chosen_streams[i]->buffer)) return 0;
     {"}"}
 """
 
@@ -916,7 +916,7 @@ def arbiter_code(tree, components, existing_buffers, args):
                 }}
             }}
         {"}"}
-        shm_monitor_set_finished(monitor_buffer);
+        vms_monitor_set_finished(monitor_buffer);
         return 0;
     {"}"}
         """
@@ -926,7 +926,7 @@ def arbiter_code(tree, components, existing_buffers, args):
     while (!are_streams_done()) {"{"}
 
     {"}"}
-    shm_monitor_set_finished(monitor_buffer);
+    vms_monitor_set_finished(monitor_buffer);
     return 0;
 {"}"}
     """
@@ -1109,10 +1109,10 @@ def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
         return f"current_rule_set = SWITCH_TO_RULE_SET_{switch_rule_name};\n"
     if tree[0] == "yield":
         return f"""
-        arbiter_outevent = (STREAM_{TypeChecker.arbiter_output_type}_out *)shm_monitor_buffer_write_ptr(monitor_buffer);
+        arbiter_outevent = (STREAM_{TypeChecker.arbiter_output_type}_out *)vms_monitor_buffer_write_ptr(monitor_buffer);
          {construct_arb_rule_outevent(mapping, output_ev_source,
                                       tree[PPARB_RULE_STMT_YIELD_EVENT], tree[PPARB_RULE_STMT_YIELD_EXPRS])}
-         shm_monitor_buffer_write_finish(monitor_buffer);
+         vms_monitor_buffer_write_finish(monitor_buffer);
         """
     if tree[0] == "drop":
         event_source_ref = tree[PPARB_RULE_STMT_DROP_EV_SOURCE]
@@ -1120,7 +1120,7 @@ def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
         event_source_name = event_source_ref[1]
         if event_source_ref[2] is not None:
             event_source_name += f"{event_source_ref[2]}"
-        return f"\tshm_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]}); ARBITER_DROPPED_ = true;\n"
+        return f"\tvms_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]}); ARBITER_DROPPED_ = true;\n"
     if tree[0] == "remove":
         buffer_group = tree[2][1]
         return f"mtx_lock(&LOCK_{buffer_group});\nbg_remove(&BG_{buffer_group}, {tree[1]});\nmtx_unlock(&LOCK_{buffer_group});\n"
@@ -1274,7 +1274,7 @@ def monitor_code(tree, mapping, arbiter_event_source) -> str:
                 break;
             {"}"}
 {monitor_events_code(tree[PPMONITOR_RULE_LIST], arbiter_event_source, possible_events, 2)}
-        shm_monitor_buffer_consume(monitor_buffer, 1);
+        vms_monitor_buffer_consume(monitor_buffer, 1);
     {"}"}
     """
     else:
@@ -1347,8 +1347,8 @@ def get_buff_groups_combinations_code(
     def get_local_inner_code():
         answer = ""
         for name in binded_streams:
-            answer += f"shm_stream *{name} = chosen_streams[index_{name}]->stream;\n"
-            answer += f"shm_arbiter_buffer *BUFFER_{name} = chosen_streams[index_{name}]->buffer;\n"
+            answer += f"vms_stream *{name} = chosen_streams[index_{name}]->stream;\n"
+            answer += f"vms_arbiter_buffer *BUFFER_{name} = chosen_streams[index_{name}]->buffer;\n"
             answer += f"STREAM_{stream_type}_ARGS *stream_args_{name} = (STREAM_{stream_type}_ARGS *)chosen_streams[index_{name}]->args;\n"
             buffer_peeks_res = dict()
             existing_buffers = set()
@@ -1365,7 +1365,7 @@ def get_buff_groups_combinations_code(
                 )
             if name in buffer_peeks_res.keys():
                 answer += f"char* e1_{name}; size_t i1_{name}; char* e2_{name}; size_t i2_{name};\n"
-                answer += f"int count_{name} = shm_arbiter_buffer_peek(BUFFER_{name}, {buffer_peeks_res[name]}, "
+                answer += f"int count_{name} = vms_arbiter_buffer_peek(BUFFER_{name}, {buffer_peeks_res[name]}, "
                 answer += f"(void**)&e1_{name}, &i1_{name}, (void**)&e2_{name}, &i2_{name});\n"
 
         answer += f"""
@@ -1447,7 +1447,7 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
             if len(stream_drops.keys()) != 0:
                 assert len(stream_drops.keys()) > 0
                 for (stream, count) in stream_drops.items():
-                    stream_drops_code += f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
+                    stream_drops_code += f"\tvms_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
             inner_code = f"""
             {define_binded_args(binded_args, stream_types)}
            
@@ -1511,7 +1511,7 @@ def buffer_peeks(tree, existing_buffers):
     for (buffer_name, desired_count) in buffers_to_peek.items():
         answer += (
             f"char* e1_{buffer_name}; size_t i1_{buffer_name}; char* e2_{buffer_name}; size_t i2_{buffer_name};\n"
-            f"int count_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, {desired_count}, "
+            f"int count_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, {desired_count}, "
             f"(void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
         )
 
@@ -1538,7 +1538,7 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
 {print_args_code}
     printf(\"{"}"}\\n\");
     char* e1_BG; size_t i1_BG; char* e2_BG; size_t i2_BG;
-    int COUNT_BG_TEMP_ = shm_arbiter_buffer_peek(current->buffer, 5, (void**)&e1_BG, &i1_BG, (void**)&e2_BG, &i2_BG);
+    int COUNT_BG_TEMP_ = vms_arbiter_buffer_peek(current->buffer, 5, (void**)&e1_BG, &i1_BG, (void**)&e2_BG, &i2_BG);
     printf(\"{buffer_group_name}[%d].buffer{"{"}\\n\", i);
     print_buffer_prefix(current->buffer, {buffer_to_src_idx[buffer_group_type]}, i1_BG + i2_BG, COUNT_BG_TEMP_, e1_BG, i1_BG, e2_BG, i2_BG);
     printf(\"{"}"}\\n\");
@@ -1577,13 +1577,13 @@ def check_progress(rule_set_name, tree, existing_buffers, components, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
     answer += f"fprintf(stderr, \"No rule in rule set '{rule_set_name}' matched even though there was enough events, CYCLING WITH NO PROGRESS (exiting)!\\n\");"
     answer += "__work_done=1; abort();"
@@ -1618,13 +1618,13 @@ def check_progress(rule_set_name, tree, existing_buffers, components, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
         answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
@@ -1660,13 +1660,13 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                    answer += f"\tcount_ = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                answer += f"\tcount_ = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
         answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
@@ -1737,18 +1737,18 @@ def destroy_all():
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}_{i}"
-                answer += f"\tshm_stream_destroy(EV_SOURCE_{name});\n"
+                answer += f"\tvms_stream_destroy(EV_SOURCE_{name});\n"
         else:
-            answer += f"\tshm_stream_destroy(EV_SOURCE_{event_source});\n"
+            answer += f"\tvms_stream_destroy(EV_SOURCE_{event_source});\n"
 
     # destroy buffers
     for (event_source, data) in TypeChecker.event_sources_data.items():
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}{i}"
-                answer += f"\tshm_arbiter_buffer_free(BUFFER_{name});\n"
+                answer += f"\tvms_arbiter_buffer_free(BUFFER_{name});\n"
         else:
-            answer += f"\tshm_arbiter_buffer_free(BUFFER_{event_source});\n"
+            answer += f"\tvms_arbiter_buffer_free(BUFFER_{event_source});\n"
 
     answer += "\tfree(monitor_buffer);\n"
     answer += "\tfree(chosen_streams);\n"
@@ -1765,15 +1765,15 @@ def destroy_all():
 
 def get_event_at_head():
     return f"""
-int get_event_at_head(shm_arbiter_buffer *b) {"{"}
+int get_event_at_head(vms_arbiter_buffer *b) {"{"}
     void * e1; size_t i1;
     void * e2; size_t i2;
 
-    int count = shm_arbiter_buffer_peek(b, 0, &e1, &i1, &e2, &i2);
+    int count = vms_arbiter_buffer_peek(b, 0, &e1, &i1, &e2, &i2);
     if (count == 0) {"{"}
         return -1;
     {"}"}
-    shm_event * ev = (shm_event *) (e1);
+    vms_event * ev = (vms_event *) (e1);
     return ev->kind;
 {"}"}
     """
@@ -1873,12 +1873,12 @@ def print_buffers_state():
             for i in range(copies):
                 buffer_name = event_source + str(i)
                 code += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                code += f"\tcount = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, &e1, &i1, &e2, &i2);\n"
+                code += f"\tcount = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, &e1, &i1, &e2, &i2);\n"
                 code += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {event_source_index}, i1 + i2, count, e1, i1, e2, i2);\n"
         else:
             buffer_name = event_source
             code += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-            code += f"\tcount = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+            code += f"\tcount = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, (void**)&e1, &i1, (void**)&e2, &i2);\n"
             code += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {event_source_index}, i1 + i2, count, e1, i1, e2, i2);\n"
     return f"""
 void print_buffers_state() {"{"}
@@ -1886,11 +1886,11 @@ void print_buffers_state() {"{"}
 {code}
 {"}"}
 
-static void print_buffer_state(shm_arbiter_buffer *buffer) {{
+static void print_buffer_state(vms_arbiter_buffer *buffer) {{
     int count;
     void *e1, *e2;
     size_t i1, i2;
-    count = shm_arbiter_buffer_peek(buffer, 10, (void**)&e1, &i1, (void**)&e2, &i2);
+    count = vms_arbiter_buffer_peek(buffer, 10, (void**)&e1, &i1, (void**)&e2, &i2);
     print_buffer_prefix(buffer, -1, i1 + i2, count, e1, i1, e2, i2);
 }}
 
@@ -2001,7 +2001,7 @@ def get_special_holes_init_code(streams_to_events_map):
             init_attributes += f"\th->{attr_data['attribute']} = {value};\n"
         hole_enum = streams_to_events_map[stream_type_in][hole_name]["enum"]
         answer += f"""
-static void init_hole_{hole_name}(shm_event *hev) {"{"}
+static void init_hole_{hole_name}(vms_event *hev) {"{"}
   STREAM_{stream_type_in}_in *e = (STREAM_{stream_type_in}_in*) hev;
   e->head.kind = {hole_enum};
 
@@ -2052,7 +2052,7 @@ def get_special_holes_update_code(mapping):
 {event_code}
             break;"""
         answer += f"""
-static void update_hole_{hole_name}(shm_event *hev, shm_event *ev) {"{"}
+static void update_hole_{hole_name}(vms_event *hev, vms_event *ev) {"{"}
     STREAM_{stream_type}_in *e = (STREAM_{stream_type}_in*) hev;
     EVENT_{hole_name}_hole *h = &e->cases.{hole_name};
     switch (ev->kind) {"{"}
@@ -2101,19 +2101,19 @@ struct _EVENT_hole
 typedef struct _EVENT_hole EVENT_hole;
 
 struct _EVENT_hole_wrapper {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         EVENT_hole hole;
     {"}"}cases;
 {"}"};
 
-static void init_hole_hole(shm_event *hev) {"{"}
+static void init_hole_hole(vms_event *hev) {"{"}
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
-    h->head.kind = shm_get_hole_kind();
+    h->head.kind = vms_event_get_hole_kind();
     h->cases.hole.n = 0;
 {"}"}
 
-static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
+static void update_hole_hole(vms_event *hev, vms_event *ev) {"{"}
     (void)ev;
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
     ++h->cases.hole.n;
@@ -2144,7 +2144,7 @@ static bool ARBITER_DROPPED_ = false; // in each iteration we set this to true i
 static size_t match_and_no_drop_num = 0; // count of consecutive matches without dropping the event (we raise a warning when we reach a certain number of this)
 
 // monitor buffer
-shm_monitor_buffer *monitor_buffer; // where we store the events that the monitor needs to process
+vms_monitor_buffer *monitor_buffer; // where we store the events that the monitor needs to process
 
 bool is_selection_successful;
 dll_node **chosen_streams; // used in rule set for get_first/last_n
@@ -2199,8 +2199,8 @@ int current_rule_set = {get_first_const_rule_set_name(ast[2])}; // initial arbit
 long unsigned no_consecutive_matches_limit = 1UL<<35;
 int no_matches_count = 0;
 
-bool are_there_events(shm_arbiter_buffer * b) {"{"}
-  return shm_arbiter_buffer_is_done(b) > 0;
+bool are_there_events(vms_arbiter_buffer * b) {"{"}
+  return vms_arbiter_buffer_is_done(b) > 0;
 {"}"}
 
 {are_buffers_done()}
@@ -2216,14 +2216,14 @@ static inline bool are_streams_done() {"{"}
     return (count_event_streams == 0 && are_buffers_done() && !ARBITER_MATCHED_) || __work_done;
 {"}"}
 
-static inline bool is_buffer_done(shm_arbiter_buffer *b) {"{"}
-    return shm_arbiter_buffer_is_done(b);
+static inline bool is_buffer_done(vms_arbiter_buffer *b) {"{"}
+    return vms_arbiter_buffer_is_done(b);
 {"}"}
 
 
 static inline
 bool check_at_least_n_events(size_t count, size_t n) {"{"}
-    // count is the result after calling shm_arbiter_buffer_peek
+    // count is the result after calling vms_arbiter_buffer_peek
 	return count >= n;
 {"}"}
 
@@ -2237,7 +2237,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 
 	int i = 0;
 	while (i < i1) {"{"}
-	    shm_event * ev = (shm_event *) (e1);
+	    vms_event * ev = (vms_event *) (e1);
 	     if (ev->kind != event_kinds[i]) {"{"}
 	        return false;
 	    {"}"}
@@ -2249,7 +2249,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 
 	i = 0;
 	while (i < i2) {"{"}
-	    shm_event * ev = (shm_event *) e2;
+	    vms_event * ev = (vms_event *) e2;
 	     if (ev->kind != event_kinds[i1+i]) {"{"}
 	        return false;
 	    {"}"}
@@ -2263,7 +2263,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 {"}"}
 
 /*
-static inline dump_event_data(shm_event *ev, size_t ev_size) {{
+static inline dump_event_data(vms_event *ev, size_t ev_size) {{
     unsigned char *data = ev;
     fprintf(stderr, "[");
     for (unsigned i = sizeof(*ev); i < ev_size; ++i) {{
@@ -2277,20 +2277,20 @@ static inline dump_event_data(shm_event *ev, size_t ev_size) {{
 
 /* src_idx = -1 if unknown */
 static void
-print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt, char* e1, size_t i1, char* e2, size_t i2) {"{"}
+print_buffer_prefix(vms_arbiter_buffer *b, int src_idx, size_t n_events, int cnt, char* e1, size_t i1, char* e2, size_t i2) {"{"}
     if (cnt == 0) {{
         fprintf(stderr, " empty\\n");
         return;
     }}
-    const size_t ev_size = shm_arbiter_buffer_elem_size(b);
+    const size_t ev_size = vms_arbiter_buffer_elem_size(b);
     int n = 0;
 	int i = 0;
 	while (i < i1) {"{"}
-	    shm_event * ev = (shm_event *) (e1);
+	    vms_event * ev = (vms_event *) (e1);
         fprintf(stderr, "  %d: {{id: %5lu, kind: %3lu", ++n,
-                shm_event_id(ev), shm_event_kind(ev));
+                vms_event_id(ev), vms_event_kind(ev));
         if (src_idx != -1)
-            fprintf(stderr, " -> %-12s", get_event_name(src_idx, shm_event_kind(ev)));
+            fprintf(stderr, " -> %-12s", get_event_name(src_idx, vms_event_kind(ev)));
         /*dump_event_data(ev, ev_size);*/
         fprintf(stderr, "}}\\n");
         if (--n_events == 0)
@@ -2301,11 +2301,11 @@ print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt
 
 	i = 0;
 	while (i < i2) {"{"}
-	    shm_event * ev = (shm_event *) e2;
+	    vms_event * ev = (vms_event *) e2;
         fprintf(stderr, "  %d: {{id: %5lu, kind: %3lu", ++n,
-                shm_event_id(ev), shm_event_kind(ev));
+                vms_event_id(ev), vms_event_kind(ev));
         if (src_idx != -1)
-            fprintf(stderr, " -> %-12s", get_event_name(src_idx, shm_event_kind(ev)));
+            fprintf(stderr, " -> %-12s", get_event_name(src_idx, vms_event_kind(ev)));
         /*dump_event_data(ev, ev_size);*/
         fprintf(stderr, "}}\\n");
 
@@ -2319,12 +2319,12 @@ print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt
 
 
 static inline
-shm_event * get_event_at_index(char* e1, size_t i1, char* e2, size_t i2, size_t size_event, int element_index) {"{"}
+vms_event * get_event_at_index(char* e1, size_t i1, char* e2, size_t i2, size_t size_event, int element_index) {"{"}
 	if (element_index < i1) {"{"}
-		return (shm_event *) (e1 + (element_index*size_event));
+		return (vms_event *) (e1 + (element_index*size_event));
 	{"}"} else {"{"}
 		element_index -=i1;
-		return (shm_event *) (e2 + (element_index*size_event));
+		return (vms_event *) (e2 + (element_index*size_event));
 	{"}"}
 {"}"}
 
@@ -2391,7 +2391,7 @@ int main(int argc, char **argv) {"{"}
      // activate buffers
      printf("-- creating buffers\\n");
     {activate_buffers()}
- 	monitor_buffer = shm_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
+ 	monitor_buffer = vms_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
 
  	 // init buffer groups
      printf("-- initializing buffer groups\\n");

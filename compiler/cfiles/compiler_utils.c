@@ -23,7 +23,7 @@ void destroy_buffer_group(buffer_group *bg) {
     //free(bg);
 }
 
-void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2)) {
+void bg_insert(buffer_group *bg, vms_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2)) {
     dll_node *new_node =  (dll_node *) malloc(sizeof(dll_node));
     new_node->stream = stream;
     new_node->buffer = buffer;
@@ -72,7 +72,7 @@ void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, b
 }
 
 
-bool bg_remove(buffer_group *bg, shm_stream *stream) {
+bool bg_remove(buffer_group *bg, vms_stream *stream) {
     // returns true only when the element was found and therefore, removed.
     dll_node * curr = bg->head;
 

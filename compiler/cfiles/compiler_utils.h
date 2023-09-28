@@ -4,7 +4,7 @@
 typedef struct _dll_node {
     struct _dll_node *next;
     struct _dll_node *prev;
-    shm_stream *stream;
+    vms_stream *stream;
     void *buffer;
     void *args;
 } dll_node;
@@ -19,11 +19,11 @@ void init_buffer_group(buffer_group *bg);
 
 void destroy_buffer_group(buffer_group *bg);
 
-void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2));
+void bg_insert(buffer_group *bg, vms_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2));
 
-dll_node *find_stream(buffer_group *bg, shm_stream *stream);
+dll_node *find_stream(buffer_group *bg, vms_stream *stream);
 
-bool bg_remove(buffer_group *bg, shm_stream *stream);
+bool bg_remove(buffer_group *bg, vms_stream *stream);
 
 void bg_remove_first_n(buffer_group *bg, int n);
 

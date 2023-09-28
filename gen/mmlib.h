@@ -8,7 +8,7 @@
     (ilen > n ? istrt + n : bstrt + (n - ilen))
 #define __MM_BUFDROP(buf, n, tlen, flen, ilen, istrt, blen, bstrt) \
     do {                                                           \
-        shm_arbiter_buffer_drop(buf, n);                           \
+        vms_arbiter_buffer_drop(buf, n);                           \
         tlen -= n;                                                 \
         flen -= n;                                                 \
         if (ilen >= n) {                                           \
