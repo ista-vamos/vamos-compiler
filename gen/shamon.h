@@ -120,9 +120,9 @@ vms_kind vms_mk_event_kind(const char *name, size_t event_size,
                            const char *signature);
 const char *vms_event_kind_name(vms_kind kind);
 
-vms_eventid vms_event_id(vms_event *event);
-size_t vms_event_size(vms_event *event);
-vms_kind vms_event_kind(vms_event *event);
+vms_eventid vms_event_id(const vms_event *event);
+size_t vms_event_size(const vms_event *event);
+vms_kind vms_event_kind(const vms_event *event);
 size_t vms_event_size_for_kind(vms_kind kind);
 
 bool vms_event_is_hole(const vms_event *);
