@@ -125,7 +125,7 @@ size_t vms_event_size(vms_event *event);
 vms_kind vms_event_kind(vms_event *event);
 size_t vms_event_size_for_kind(vms_kind kind);
 
-bool vms_event_is_hole(vms_event *);
+bool vms_event_is_hole(const vms_event *);
 vms_kind vms_event_get_hole_kind(void);
 
 /************************************************************************
