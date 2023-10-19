@@ -5,8 +5,15 @@ import argparse
 import os
 import shutil
 import subprocess
+import json
+from json import JSONEncoder
 from pathlib import Path
+from os.path import dirname, basename, abspath, join as pathjoin, isdir
 
+SELFPATH=abspath(dirname(__file__))
+sys.path.append(SELFPATH+'/..')
+import ply.lex as lex
+from compiler.lexer import MyLexer
 from compiler.parser import parse_program
 from compiler.type_checker import TypeChecker
 from compiler.cfile_utils import get_c_program
@@ -19,6 +26,10 @@ from config import (
     vamos_buffers_LIBRARIES_DIRS_streams,
     vamos_buffers_INCLUDE_DIR,
 )
+
+class MyEncoder(JSONEncoder):
+    def default(self, o):
+        return o.__dict__   
 
 parser = argparse.ArgumentParser(prog="vamosc")
 parser.add_argument("inputfile", type=str, help="VAMOS program to compile.")
@@ -77,6 +88,21 @@ parser.add_argument(
     "--crate-local-vendor",
     help="Path to local copies of Rust dependencies to prevent fetching them from online repositories",
 )
+parser.add_argument(
+    "--skip-default-actions",
+    action="store_true",
+    help="Omits any default actions. Mostly for debugging."
+)
+parser.add_argument(
+    "--print-tokens",
+    action="store_true",
+    help="Prints the token stream read from the given input file. Mostly for debugging."
+)
+parser.add_argument(
+    "--print-ast",
+    action="store_true",
+    help="Prints the parsed Abstract Syntax Tree. Mostly for debugging."
+)
 
 args = parser.parse_args()
 bufsize = args.bufsize
@@ -91,8 +117,24 @@ TypeChecker.clean_checker()
 TypeChecker.add_reserved_keywords()
 
 # Parser
-ast = parse_program(file)
-assert ast[0] == "main_program"
+if(args.skip_default_actions and not args.print_tokens):
+    sys.exit(0)
+l = MyLexer()
+lexer = l.build()
+if(args.print_tokens):
+    lexer.input(file)
+    ntok=lexer.token()
+    while(ntok!=None):
+        print(f"{ntok}")
+        ntok=lexer.token()
+    l.reset()
+if(args.skip_default_actions and not args.print_ast):
+    sys.exit(0)
+ast = parse_program(l.tokens, lexer, file)
+if(args.print_ast):
+    print(json.dumps(ast,cls=MyEncoder))
+if(args.skip_default_actions):
+    sys.exit(0)
 components = dict()
 get_components_dict(ast[1], components)
 
@@ -207,14 +249,15 @@ if args.with_tessla is not None:
         )
 else:
 
-    program = get_c_program(
-        components,
-        ast,
-        streams_to_events_map,
-        stream_types,
-        arbiter_event_source,
-        existing_buffers,
-    )
+    # program = get_c_program(
+    #     components,
+    #     ast,
+    #     streams_to_events_map,
+    #     stream_types,
+    #     arbiter_event_source,
+    #     existing_buffers,
+    # )
+    program = ast.toCCode()
     output_file = open(output_path, "w")
     output_file.write(program)
     output_file.close()

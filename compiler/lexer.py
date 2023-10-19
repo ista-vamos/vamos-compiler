@@ -16,9 +16,7 @@ class MyLexer(object):
         ">",
         "-",
         "|",
-        "$",
-        ".",
-        "*",
+        "."
     ]
 
     # Declare the state
@@ -29,27 +27,155 @@ class MyLexer(object):
         r"\$\$"
         assert t.lexer.current_state() == "INITIAL"
         t.lexer.push_state("CCODE")  # Enter 'ccode' state
+        self.parenstack = (-100, None)
+        self.bracestack = (-100, None)
+        self.parenlevel = 0
+        self.bracelevel = 0
         return t
 
-    def t_CCODE_END(self, t):
+    def t_CCODE_end(self, t):
         r"\$\$"
         assert t.lexer.current_state() == "CCODE"
         t.lexer.pop_state()  # Enter INITIAL state
         assert t.lexer.current_state() == "INITIAL"
-
-    def t_CCODE_STATEMENT_INITIAL(self, t):
-        r"\$"
-        assert t.lexer.current_state() == "CCODE"
-        t.lexer.push_state("INITIAL")  # Enter 'initial' state
-
-    def t_CCODE_TOKEN(self, t):
-        r"[^$]+"
-        assert t.lexer.current_state() == "CCODE"
-        t.type = "CCODE_TOKEN"
+        t.type="CCODE_end"
         return t
 
+    def t_CCODE_escape(self, t):
+        r"\\[.\n]"
+        t.type="CCODE_TOKEN"
+        t.lexer.lineno += t.value.count("\n")
+        return t
+
+    def t_CCODE_string(self, t):
+        r'\"([^\\\n]|(\\.))*?\"'
+        t.type="CCODE_TOKEN"
+        t.lexer.lineno += t.value.count("\n")
+        return t
+
+    def t_CCODE_comment(self, t):
+        r'(/\*(.|\n)*?\*/)|(//.*)'
+        t.type="CCODE_TOKEN"
+        t.lexer.lineno += t.value.count("\n")
+        return t
+
+    def t_CCODE_oparen(self, t):
+        r'\('
+        t.type="CCODE_OPAREN"
+        self.parenlevel+=1
+        return t
+
+    def t_CCODE_cparen(self, t):
+        r'\)'
+        t.type="CCODE_CPAREN"
+        self.parenlevel-=1
+        return t
+
+    def t_CCODE_obrace(self, t):
+        r'\{'
+        t.type="CCODE_OBRACE"
+        self.bracelevel+=1
+        return t
+
+    def t_CCODE_cbrace(self, t):
+        r'\}'
+        t.type="CCODE_CBRACE"
+        self.bracelevel-=1
+        return t
+
+    def t_CCODE_semicolon(self, t):
+        r';'
+        (plevel, prest) = self.parenstack
+        if(self.parenlevel==plevel):
+            self.parenstack=prest
+            t.type="CCODE_SEMICOLON"
+        else:
+            t.type="CCODE_TOKEN"
+        return t
+    
+    def t_CCODE_comma(self, t):
+        r','
+        (plevel, prest) = self.parenstack
+        if(self.parenlevel==plevel+1):
+            t.type="CCODE_COMMA"
+        else:
+            t.type="CCODE_TOKEN"
+        return t
+
+    def t_CCODE_rest(self, t):
+        r'[^/\\{}()\$;,\"]+'
+        t.type="CCODE_TOKEN"
+        t.lexer.lineno += t.value.count("\n")
+        return t
+    
+    def t_CCODE_escape_yield(self, t):
+        r'\$yield[\t ]+(?P<evid>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*\('
+        self.parenstack = (self.parenlevel, self.parenstack)
+        self.parenlevel+=1
+        t.type="CCODE_YIELD"
+        t.value=t.lexer.lexmatch.group("evid")
+        return t
+    
+    def t_CCODE_escape_switchto(self, t):
+        r'\$switch[\t ]+to[\t ]+(?P<rsid>[a-zA-Z_][a-zA-Z_0-9]*)[\t ];'
+        t.type="CCODE_SWITCHTO"
+        t.value=t.lexer.lexmatch.group("rsid")
+        return t
+    
+    def t_CCODE_escape_continue(self, t):
+        r'\$continue;'
+        t.type="CCODE_CONTINUE"
+        return t
+    
+    def t_CCODE_escape_drop(self, t):
+        r'\$drop[\t ]+(?P<amnt>[1-9][0-9]*)[\t ]+from[\t ]+(?P<esid1>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx1>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]*;'
+        t.type="CCODE_DROP"
+        idx=t.lexer.lexmatch.group("idx1")
+        if(idx==None):
+            idx="0"
+        t.value=(t.lexer.lexmatch.group("amnt"), t.lexer.lexmatch.group("esid1"), idx)
+        return t
+    
+    def t_CCODE_escape_remove(self, t):
+        r'\$remove[\t ]+(?P<esid2>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx2>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+from[\t ]+(?P<bgid1>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
+        t.type="CCODE_REMOVE"
+        idx=t.lexer.lexmatch.group("idx2")
+        if(idx==None):
+            idx="0"
+        t.value=(t.lexer.lexmatch.group("esid2"), idx, t.lexer.lexmatch.group("bgid1"))
+        return t
+    
+    def t_CCODE_escape_add(self, t):
+        r'\$add[\t ]+(?P<esid3>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx3>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+to[\t ]+(?P<bgid2>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
+        t.type="CCODE_ADD"
+        idx=t.lexer.lexmatch.group("idx3")
+        if(idx==None):
+            idx="0"
+        t.value=(t.lexer.lexmatch.group("esid3"), idx, t.lexer.lexmatch.group("bgid2"))
+        return t
+    
+    def t_CCODE_escape_field(self, t):
+        r'\$(?P<esid4>[a-zA-Z_][a-zA-Z_0-9]*)(\[[\t ]*(?P<idx4>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?\.(?P<fname>[a-zA-Z_][a-zA-Z0-9_]*);'
+        t.type="CCODE_FIELD"
+        idx=t.lexer.lexmatch.group("idx4")
+        if(idx==None):
+            idx="0"
+        t.value=(t.lexer.lexmatch.group("esid4"), idx, t.lexer.lexmatch.group("fname"))
+        return t
+
+    # def t_CCODE_STATEMENT_INITIAL(self, t):
+    #     r"\$"
+    #     assert t.lexer.current_state() == "CCODE"
+    #     t.lexer.push_state("INITIAL")  # Enter 'initial' state
+
+    # def t_CCODE_TOKEN(self, t):
+    #     r"[^$]+"
+    #     assert t.lexer.current_state() == "CCODE"
+    #     t.type = "CCODE_TOKEN"
+    #     return t
+
     # Ignored characters (whitespace)
-    t_CCODE_ignore = " \t\n"
+    # t_CCODE_ignore = " \t\n"
 
     # For bad characters, we just skip over it
     def t_CCODE_error(self, t):
@@ -116,6 +242,26 @@ class MyLexer(object):
         r"\|"
         t.type = "|"  # Set token type to the expected literal
         return t
+    
+    def t_arrow(self, t):
+        r"\->"
+        t.type="ARROW"
+        return t
+    
+    def t_times(self, t):
+        r"\*"
+        t.type="TIMES"
+        return t
+    
+    def t_plus(self, t):
+        r"\+"
+        t.type="PLUS"
+        return t
+    
+    def t_minus(self, t):
+        r"\-"
+        t.type="MINUS"
+        return t
 
     reserved = {
         "if": "IF",
@@ -131,8 +277,6 @@ class MyLexer(object):
         "on": "ON",
         "done": "DONE",
         "nothing": "NOTHING",
-        "yield": "YIELD",
-        "switch": "SWITCH",
         "to": "TO",
         "where": "WHERE",
         "rule": "RULE",
@@ -157,7 +301,6 @@ class MyLexer(object):
         "fun": "FUN",
         "choose": "CHOOSE",
         "by": "BY",
-        "remove": "REMOVE",
         "globals": "GLOBALS",
         "startup": "STARTUP",
         "cleanup": "CLEANUP",
@@ -165,17 +308,23 @@ class MyLexer(object):
         "processor": "PROCESSOR",
         "include": "INCLUDE",
         "includes": "INCLUDES",
-        "first": "FIRST",
-        "last": "LAST",
         "order": "ORDER",
         "all": "ALL",
-        "add": "ADD",
         "in": "IN",
+        "first" : "FIRST",
+        "last" : "LAST",
         "COUNT": "COUNT",
         "MAX": "MAX",
         "MIN": "MIN",
         "always": "ALWAYS",
-        "continue": "CONTINUE",
+        "\+": "PLUS",
+        "\*": "TIMES",
+        "\-": "MINUS",
+        "wait": "WAIT",
+        "ignore": "IGNORE",
+        "assume": "ASSUME",
+        "shared": "SHARED",
+        "\->" : "ARROW"
     }
 
     # Token names.
@@ -187,6 +336,20 @@ class MyLexer(object):
         # ccode
         "CCODE_TOKEN",  # matches everything except $
         "BEGIN_CCODE",
+        "CCODE_end",
+        "CCODE_YIELD",
+        "CCODE_FIELD",
+        "CCODE_OPAREN",
+        "CCODE_CPAREN",
+        "CCODE_OBRACE",
+        "CCODE_CBRACE",
+        "CCODE_SEMICOLON",
+        "CCODE_COMMA",
+        "CCODE_DROP",
+        "CCODE_REMOVE",
+        "CCODE_ADD",
+        "CCODE_CONTINUE",
+        "CCODE_SWITCHTO"
     ] + list(reserved.values())
 
     # Regular expression rules for simple tokens
@@ -219,9 +382,22 @@ class MyLexer(object):
         )
         t.lexer.skip(1)
 
+    def reset(self):
+        self.lexer.lineno=1
+        self.parenstack = (-100, None)
+        self.bracestack = (-100, None)
+        self.parenlevel = 0
+        self.bracelevel = 0
+        self.lexer.begin("INITIAL")
+
     # Build the lexer
     def build(self, **kwargs):
         self.lexer = lex.lex(module=self, **kwargs)
+        self.parenstack = (-100, None)
+        self.bracestack = (-100, None)
+        self.parenlevel = 0
+        self.bracelevel = 0
+        return self.lexer
 
     # Test it output
     def test(self, data):
