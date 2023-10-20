@@ -345,14 +345,14 @@ def get_stream_to_events_mapping(
 
         num_events = len(events_data.items())
         for (index, (_, data)) in enumerate(stream_processors_object.items()):
-            if data["special_hole"] is not None:
+            if data["special_hole"] is not None and data["input_type"] == stream_type:
                 args_hole = []
                 for attr in data["special_hole"]:
                     args_hole.append({"name": attr["attribute"], "type": attr["type"]})
                 mapping_events[data["hole_name"]] = {
                     "index": f"VMS_EVENT_LAST_SPECIAL_KIND + {index + num_events + 1}",
                     "args": args_hole,
-                    "enum": f'{data["hole_name"]}_HOLE',
+                    "enum": f'{stream_type.upper()}_{data["hole_name"]}',
                 }
         mapping[stream_type] = mapping_events
     return mapping

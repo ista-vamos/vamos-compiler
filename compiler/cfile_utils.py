@@ -336,8 +336,6 @@ def events_enum_kinds(streams_to_events_map) -> str:
         str: _description_
     """    
     answer = f""
-   #for (_, data) in TypeChecker.event_sources_data.items():
-   #    stream_type = data['input_stream_type']
     for stream_type_name, stream_type in streams_to_events_map.items():
         answer += f"enum {stream_type_name}_kinds {{\n"
         #assert stream_type in streams_to_events_map, stream_type
@@ -2089,11 +2087,11 @@ def outside_main_code(
 #define vamos_check(cond)
 #define vamos_assert(cond)
 #else
-#define vamos_check(cond) do {{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: check '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); }} }} while(0)
-#define vamos_assert(cond) do{{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; }} }} while(0)
+#define vamos_check(cond) do {{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: check '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); }} }} while(0)
+#define vamos_assert(cond) do{{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; }} }} while(0)
 #endif
 
-#define vamos_hard_assert(cond) do{{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; abort();}} }} while(0)
+#define vamos_hard_assert(cond) do{{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; abort();}} }} while(0)
 
 struct _EVENT_hole
 {"{"}
