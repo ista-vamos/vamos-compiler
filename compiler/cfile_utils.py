@@ -769,7 +769,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = stream_filter_fetch(stream, buffer, &SHOULD_KEEP_forward);
+        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_forward);
 
         if (inevent == NULL) {"{"}
             // no more events
@@ -810,7 +810,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = stream_filter_fetch(stream, buffer, &SHOULD_KEEP_{stream_processor});
+        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_{stream_processor});
 
         if (inevent == NULL) {"{"}
             // no more events
