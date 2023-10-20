@@ -188,6 +188,8 @@ class FieldDecl(ASTNode):
         super().__init__(posInfo)
     def __str__(self):
         return f"{self.name} : {self.type}"
+    def toCCode(self):
+        return f"{self.type.toCCode()} {self.name}"
 
 class Event(ASTNode):
     def __init__(self, name, posInfo, fields, creates):
@@ -213,10 +215,12 @@ class Event(ASTNode):
     
     def initializeIndices(self, idx):
         self.index=idx
-        index=0
+        index=len(self.streamType.shared)
         self.fields={}
         for field in self.flds:
-            if field.name in self.fields:
+            if field.name in self.streamType.shared:
+                registerError(VamosError([field.pos], f"Definition of field named \"{field.name}\" for event \"{self.name}\" clashed with shared field of stream type \"{self.streamType.name}\""))
+            elif field.name in self.fields:
                 registerError(VamosError([field.pos], f"Multiple definitions of field named \"{field.name}\" for event \"{self.name}\" of stream type \"{self.streamType.name}\""))
             else:
                 self.fields[field.name]=field
@@ -228,14 +232,45 @@ class Event(ASTNode):
 
     def toEnumDef(self):
         return f"{self.toEnumName()} = {self.index},\n"
-        
+
+    def toStructName(self):
+        return f"__vamos_event_{self.name}"
+
+    def toFieldStructName(self):
+        return f"__vamos_eventfields_{self.name}"
+
+    def toCPreDecls(self):
+        return f"""
+struct _{self.toStructName()};
+struct _{self.toFieldStructName()};
+typedef struct _{self.toStructName()} {self.toStructName()};
+typedef struct _{self.toFieldStructName()} {self.toFieldStructName()};
+"""
+    
+    def toCDef(self):
+        fields=";\n    ".join(sorted(self.fields.items(),key=lambda field: field.index))
+        if len(self.fields) > 0:
+            fields+=";\n"
+        return f"""
+struct _{self.toStructName(self)} {"{"}
+    {fields}
+{"}"}
+struct _{self.toStructName(self)} {"{"}
+    {self.streamType.target.toSharedFieldDef()}{self.toFieldStructName()} fields;
+{"}"}
+"""
+    def toFieldAccess(self, receiver, fieldname):
+        if fieldname in self.fields:
+            return f"{receiver}.fields.{self.fields[fieldname].toCName()}"
+        else:
+            return self.streamtype.target.toSharedFieldAccess(receiver, fieldname)
 
 class StreamType(ASTNode):
     def __init__(self, name, posInfo, streamfields, supertype, sharedfields, events):
         self.name=name
         self.fields=streamfields
         self.supertype=supertype
-        self.shared=sharedfields
+        self.sharedflds=sharedfields
         self.evs=events
         self.initializedMembers=False
         super().__init__(posInfo)
@@ -288,6 +323,11 @@ class StreamType(ASTNode):
             ret+=ev.toEnumDef()
         ret+="}"
         return ret
+    
+    def toSharedFieldDef(self):
+        if self.supertype is not None:
+            return self.supertype.target.toSharedFieldDef()
+        
 
 class StreamTypeRef(Reference):
     def __init__(self, name, posInfo):
