@@ -335,14 +335,15 @@ def events_enum_kinds(streams_to_events_map) -> str:
     Returns:
         str: _description_
     """    
-    answer = ""
-    for (_, data) in TypeChecker.event_sources_data.items():
-        stream_type = data['input_stream_type']
-        answer += f"enum {stream_type}_kinds {{\n"
-        assert stream_type in streams_to_events_map, stream_type
-        for _, attrs in streams_to_events_map[stream_type].items():
-            answer += f"{attrs['enum']} = {attrs['index']},\n"
-        answer += "};"
+    answer = f""
+   #for (_, data) in TypeChecker.event_sources_data.items():
+   #    stream_type = data['input_stream_type']
+    for stream_type_name, stream_type in streams_to_events_map.items():
+        answer += f"enum {stream_type_name}_kinds {{\n"
+        #assert stream_type in streams_to_events_map, stream_type
+        for _, attrs in stream_type.items():
+            answer += f"  {attrs['enum']} = {attrs['index']},\n"
+        answer += "};\n\n"
     return answer
 
 
@@ -1807,12 +1808,12 @@ def print_event_name(stream_types, mapping):
 
     return f"""
 void print_event_name(int ev_src_index, int event_index) {"{"}
-    if (event_index == -1) {"{"}
-        printf("None\\n");
+    if (event_index <= 0) {"{"}
+        printf("<invalid (%d)>\\n", event_index);
         return;
     {"}"}
 
-    if (event_index == 1) {"{"}
+    if (event_index == VMS_EVENT_HOLE_KIND) {"{"}
         printf("hole\\n");
         return;
     {"}"}
@@ -1848,11 +1849,11 @@ def get_event_name(mapping):
 
     return f"""
 const char *get_event_name(int ev_src_index, int event_index) {"{"}
-    if (event_index == -1) {"{"}
-        return "<none>";
+    if (event_index <= 0) {"{"}
+        return "<invalid>";
     {"}"}
     
-    if (event_index == 1) {"{"}
+    if (event_index == VMS_EVENT_HOLE_KIND) {"{"}
         return "hole";
     {"}"}
     
