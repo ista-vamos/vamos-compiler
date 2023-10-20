@@ -326,31 +326,31 @@ def get_stream_to_events_mapping(
         stream_type = tree[PPSTREAM_TYPE_NAME]
         assert stream_type not in mapping.keys()
         mapping_events = {}
-        current_index = 2
         for (index, (event_name, args)) in enumerate(events_data.items()):
             data = {"args": args}
             data.update(
                 {
-                    "index": index + 2,
+                    "index": f"VMS_EVENT_LAST_SPECIAL_KIND + {index + 1}",
                     "enum": f"{stream_type.upper()}_{event_name.upper()}",
                 }
             )
-            current_index = index + 2
             mapping_events[f"{event_name}"] = data
 
+
         mapping_events["hole"] = {
-            "index": 1,
+            "index": "VMS_EVENT_HOLE_KIND",
             "args": [{"name": "n", "type": "int"}],
             "enum": f"{stream_type.upper()}_HOLE",
         }
-        for (_, data) in stream_processors_object.items():
+
+        num_events = len(events_data.items())
+        for (index, (_, data)) in enumerate(stream_processors_object.items()):
             if data["special_hole"] is not None:
-                current_index += 1
                 args_hole = []
                 for attr in data["special_hole"]:
                     args_hole.append({"name": attr["attribute"], "type": attr["type"]})
                 mapping_events[data["hole_name"]] = {
-                    "index": current_index,
+                    "index": f"VMS_EVENT_LAST_SPECIAL_KIND + {index + num_events + 1}",
                     "args": args_hole,
                     "enum": f'{data["hole_name"]}_HOLE',
                 }
