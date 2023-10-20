@@ -1828,7 +1828,7 @@ def get_event_name(mapping):
         answer = ""
         for (event, data) in events.items():
             answer += f"""
-        if (event_index == {data['index']} ) {"{"}
+        if (event_index == {data['enum']} ) {"{"}
             return "{event}";
         {"}"}
             """
