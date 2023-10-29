@@ -135,46 +135,48 @@ if(args.print_ast):
     print(json.dumps(ast,cls=MyEncoder))
 if(args.skip_default_actions):
     sys.exit(0)
-components = dict()
-get_components_dict(ast[1], components)
+# components = dict()
+# get_components_dict(ast[1], components)
 
-if "stream_type" in components.keys():
-    TypeChecker.get_stream_types_data(components["stream_type"])
+# if "stream_type" in components.keys():
+#     TypeChecker.get_stream_types_data(components["stream_type"])
 
-if "stream_processor" in components.keys():
-    TypeChecker.get_stream_processors_data(components["stream_processor"])
-for event_source in components["event_source"]:
-    TypeChecker.insert_event_source_data(event_source)
-TypeChecker.get_stream_events(components["stream_type"])
+# if "stream_processor" in components.keys():
+#     TypeChecker.get_stream_processors_data(components["stream_processor"])
+# for event_source in components["event_source"]:
+#     TypeChecker.insert_event_source_data(event_source)
+# TypeChecker.get_stream_events(components["stream_type"])
 
-if "buff_group_def" in components.keys():
-    for buff_group in components["buff_group_def"]:
-        TypeChecker.add_buffer_group_data(buff_group)
+# if "buff_group_def" in components.keys():
+#     for buff_group in components["buff_group_def"]:
+#         TypeChecker.add_buffer_group_data(buff_group)
 
-if "match_fun_def" in components.keys():
-    for match_fun in components["match_fun_def"]:
-        TypeChecker.add_match_fun_data(match_fun)
+# if "match_fun_def" in components.keys():
+#     for match_fun in components["match_fun_def"]:
+#         TypeChecker.add_match_fun_data(match_fun)
 
-# TypeChecker.check_arbiter(ast[-2])
-# TypeChecker.check_monitor(ast[-1])
-#
-# Produce C file
+# # TypeChecker.check_arbiter(ast[-2])
+# # TypeChecker.check_monitor(ast[-1])
+# #
+# # Produce C file
 
-#
-streams_to_events_map = get_stream_to_events_mapping(
-    components["stream_type"], TypeChecker.stream_processors_data
-)
+# #
+# streams_to_events_map = get_stream_to_events_mapping(
+#     components["stream_type"], TypeChecker.stream_processors_data
+# )
 
-stream_types: Dict[str, Tuple[str, str]] = get_stream_types(components["event_source"])
-arbiter_event_source = get_arbiter_event_source(ast[2])
-existing_buffers = get_existing_buffers(TypeChecker)
+# stream_types: Dict[str, Tuple[str, str]] = get_stream_types(components["event_source"])
+# arbiter_event_source = get_arbiter_event_source(ast[2])
+# existing_buffers = get_existing_buffers(TypeChecker)
 
-TypeChecker.arbiter_output_type = arbiter_event_source
+# TypeChecker.arbiter_output_type = arbiter_event_source
 
-# if args.out is None:
-# 	print("provide the path of the file where the C program must be written.")
-# 	exit(1)
-# else:
+# # if args.out is None:
+# # 	print("provide the path of the file where the C program must be written.")
+# # 	exit(1)
+# # else:
+ast.check()
+
 output_path = os.path.abspath(args.out)
 cscript_path = args.compilescript
 executable_path = os.path.abspath(args.executable)
@@ -205,14 +207,15 @@ if args.with_tessla is not None:
     update_toml(args.dir, args.crate_local_vendor)
 
     # BEGIN writing c-file interface
-    c_interface = get_c_interface(
-        components,
-        ast,
-        streams_to_events_map,
-        stream_types,
-        arbiter_event_source,
-        existing_buffers,
-    )
+    # c_interface = get_c_interface(
+    #     components,
+    #     ast,
+    #     streams_to_events_map,
+    #     stream_types,
+    #     arbiter_event_source,
+    #     existing_buffers,
+    # )
+    c_interface = ast.toCTeSSLaInterface()
     file = open(output_path, "w")
     file.write(c_interface)
     file.close()
@@ -221,7 +224,7 @@ if args.with_tessla is not None:
     lines = file.readlines()
     file.close()
     # BEGIN writing rust file
-    program = get_rust_file(streams_to_events_map, arbiter_event_source, lines)
+    program = ast.toCCodeTeSSLa() #get_rust_file(streams_to_events_map, arbiter_event_source, lines)
 
     file = open(f"{args.dir}/src/monitor.rs", "w")
     extern_keyword_found = False

@@ -203,6 +203,44 @@ class MyLexer(object):
         t.type = ","
         return t
 
+    def t_doubleq(self, t):
+        r"=="
+        t.type="DOUBLEEQ"
+        return t 
+    def t_geq(self, t):
+        r"\>="
+        t.type="GEQ"
+        return t 
+    def t_leq(self, t):
+        r"\<="
+        t.type="LEQ"
+        return t  
+    def t_gt(self, t):
+        r"\>"
+        t.type="GT"
+        return t 
+    def t_lt(self, t):
+        r"\<"
+        t.type="LT"
+        return t
+    def t_and(self, t):
+        r"\&\&"
+        t.type="AND"
+        return t 
+    def t_or(self, t):
+        r"\|\|"
+        t.type="OR"
+        return t  
+
+    def t_band(self, t):
+        r"\&"
+        t.type = "BAND"
+        return t
+    def t_not(self, t):
+        r"\!"
+        t.type = "NOT"
+        return t
+
     def t_equal(self, t):
         r"="
         t.type = "="
@@ -308,6 +346,7 @@ class MyLexer(object):
         "processor": "PROCESSOR",
         "include": "INCLUDE",
         "includes": "INCLUDES",
+        "aggregate": "AGGREGATE",
         "order": "ORDER",
         "all": "ALL",
         "in": "IN",
@@ -333,6 +372,16 @@ class MyLexer(object):
         "BOOL",
         "INT",
         "ID",
+        # operators
+        "DOUBLEQ",
+        "GEQ",
+        "LEQ",
+        "LT",
+        "GT",
+        "AND",
+        "OR",
+        "BAND",
+        "NOT",
         # ccode
         "CCODE_TOKEN",  # matches everything except $
         "BEGIN_CCODE",
@@ -360,6 +409,10 @@ class MyLexer(object):
         r"((\-?|\+?)([1-9][0-9]*)|0)"
         t.value = int(t.value)
         return t
+    
+    def t_BOOL(self, t):
+        r"(true)|(false)"
+        return t
 
     def t_ID(self, t):
         r"[a-zA-Z_][a-zA-Z_0-9]*"
@@ -374,6 +427,7 @@ class MyLexer(object):
 
     # A string containing ignored characters (spaces and tabs)
     t_ignore = " \t"
+    t_CCODE_ignore = ""
 
     # Error handling rule
     def t_error(self, t):

@@ -6,6 +6,11 @@ from parser_indices import *
 from vamos import *
 
 precedence = (
+    ('left', 'AND', 'OR'),
+    ('right', 'NOT'),
+    ('left', 'DOUBLEQ'),
+    ('left', 'GEQ', 'LEQ', 'GT', 'LT'),
+    ('left', 'BAND', '|'),
     ('left', 'PLUS', 'MINUS'),
     ('left', 'TIMES'),
     ('right', 'UMINUS')
@@ -74,9 +79,9 @@ def p_loopdebug(p):
 # BEGIN event streams
 def p_stream_type(p):
     """
-    stream_type : STREAM TYPE ID stream_fields stream_type_extends shared_spec '{' event_list '}'
+    stream_type : STREAM TYPE ID stream_fields stream_type_extends shared_spec aggregate_spec '{' event_list '}'
     """
-    p[0]=StreamType(p[3], posInfoFromParser(p), p[4], p[5], p[6], p[8])
+    p[0]=StreamType(p[3], posInfoFromParser(p), p[4], p[5], p[6], p[7], p[9])
     # stream_name = p[3]
     # field_declarations = None
     # extends_node = None
@@ -119,6 +124,16 @@ def p_stream_type_extends(p):
     else:
         p[0]=None
 
+def p_aggregate_spec(p):
+    """
+    aggregate_spec : empty
+                   | AGGREGATE '(' list_aggregate_field_decl ')'
+    """
+    if(len(p)==5):
+        p[0]=p[3]
+    else:
+        p[0]=[]
+
 def p_shared_spec(p):
     """
     shared_spec : empty
@@ -152,6 +167,8 @@ def p_list(p):
     """
     list_field_decl : empty
                     | ne_list_field_decl
+    list_aggregate_field_decl : empty
+                              | ne_list_aggregate_field_decl
     expression_list : empty
                     | ne_expression_list
     id_list : empty
@@ -174,6 +191,8 @@ def p_nelist(p):
                | ID ',' ne_id_list
     ne_list_field_decl : field_decl
                        | field_decl ',' ne_list_field_decl
+    ne_list_aggregate_field_decl : ne_list_aggregate_field_decl
+                       | aggregate_field_decl ',' ne_list_field_decl
     event_list : event_decl ';'
                | event_decl ';' event_list
     ne_expression_list : expression
@@ -222,6 +241,11 @@ def p_field_declaration(p):
     """
     p[0] = FieldDecl(p[PFIELD_NAME], p[PFIELD_TYPE], posInfoFromParser(p))
 
+def p_agg_field_decl(p):
+    """
+    aggregate_field_decl : ID '=' agg_expr
+    """
+    p[0] = AggFieldDecl(p[1], posInfoFromParser(p), p[3])
 
 # END event streams
 
@@ -231,7 +255,7 @@ def p_stream_processor(p):
     """
     stream_processor : STREAM PROCESSOR ID stream_fields ':' ID opt_expression_list ARROW ID opt_expression_list processor_extends_spec '{' processor_rule_list custom_hole '}'
     """
-    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], p[6], p[7], p[9], p[10], p[11], p[13], [14])
+    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], ParameterizedRef(StreamTypeRef(p[6], posInfoFromParserItem(p,6)), p[7], posInfoFromParserItem(p,6).Combine(posInfoFromParserItem(p,7), True)), ParameterizedRef(StreamTypeRef(p[9], posInfoFromParserItem(p,9)), p[10], posInfoFromParserItem(p,9).Combine(posInfoFromParserItem(p,10), True)), p[11], p[13], [14])
     # name_with_args = p[3]
     # input_type = p[5]
     # output_type = p[7]
@@ -280,7 +304,7 @@ def p_processor_extends_spec(p):
     if(len(p)==2):
         p[0]=None
     else:
-        p[0]=ParameterizedRef(p[2], p[3], posInfoFromParser(p))
+        p[0]=ParameterizedRef(StreamProcessorRef(p[2], posInfoFromParserItem(p,2)), p[3], posInfoFromParser(p))
 
 
 def p_custom_hole(p):
@@ -731,7 +755,7 @@ def p_arbiter_rule_choice(p):
     """
     arbiter_rule : arbiter_choose '{' arbiter_rule_list '}'
     """
-    p[0] = ArbiterChoiceRule(posInfoFromParser(p), p[1], p[3]),
+    p[0] = ArbiterChoiceRule(posInfoFromParser(p), p[1], p[3])
 
 def p_arbiter_cond_always(p):
     """
@@ -1250,25 +1274,76 @@ def p_monitor_where(p):
 #     else:
 #         p[0] = ("name-with-args", p[1], p[3])
 
-
-def p_type(p):
+def p_type_inner(p):
     """
-    type : ID
-         | type '[' ']'
+    type : type_inner
     """
-    if len(p) == 2:
-        p[0] = ("type", p[PTYPE_NAME])
-    else:
-        assert len(p) == 4
-        p[0] = ("array", p[PTYPE_NAME])
+    p[0] = p[1]
 
-def p_expression(p):
+def p_type_named(p):
+    """
+    type_inner : ID
+    """
+    p[0]=TypeNamed(posInfoFromParser(p), p[1])
+
+def p_type_ptr(p):
+    """
+    type_inner : type_inner TIMES
+    """
+    p[0]=TypePointer(posInfoFromParser(p), p[1])
+    
+
+def p_type_arr(p):
+    """
+    type_inner : type_inner '[' ']'
+    """
+    p[0]=TypeArray(posInfoFromParser(p), p[1])
+    
+
+def p_expression_var(p):
     """
     expression : ID
-               | INT
-               | BOOL
     """
-    p[0] = CCode(posInfoFromParser(p), p[1])
+    p[0] = ExprVar(p[1], posInfoFromParser(p))
+
+def p_expression_int(p):
+    """
+    expression : INT
+    """
+    p[0] = ExprInt(p[1], posInfoFromParser(p))
+
+def p_expression_bool(p):
+    """
+    expression : BOOL
+    """
+    if(p[1]=="true"):
+        p[0] = ExprTrue(posInfoFromParser(p))
+    else:
+        p[0] = ExprFalse(posInfoFromParser(p))
+
+def p_expression_binop(p):
+    """
+    expression : expression DOUBLEQ expression
+               | expression GEQ expression
+               | expression LEQ expression
+               | expression GT expression
+               | expression LT expression
+               | expression OR expression
+               | expression AND expression
+               | expression BAND expression
+               | expression '|' expression
+               | expression PLUS expression
+               | expression MINUS expression
+               | expression TIMES expression
+    """
+    p[0] = ExprBinOp(posInfoFromParser(p), p[2], p[1], p[3])
+
+def p_expression_unop(p):
+    """
+    expression : MINUS expression
+               | NOT expression
+    """
+    p[0] = ExprUnOp(posInfoFromParser(p), p[1], p[2])
 
 def p_expression_ccode(p):
     """
@@ -1276,6 +1351,17 @@ def p_expression_ccode(p):
     """
     p[0] = p[1]
 
+def p_expression_fieldacc(p):
+    """
+    expression : FIELD_ACCESS
+    """
+    p[0] = p[1]
+
+def p_expression_parens(p):
+    """
+    expression : '(' expression ')'
+    """
+    p[0] = p[2]
 
 def p_field_access(p):
     """
