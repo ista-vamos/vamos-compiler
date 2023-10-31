@@ -354,14 +354,18 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
         stream_name, args = get_name_with_args(event_src_declaration[1])
         copies = TypeChecker.event_sources_data[stream_name]["copies"]
 
+        hole_name = None
+
         processor_name = TypeChecker.event_sources_data[stream_name]["processor_name"]
         if processor_name.lower() == "forward":
-            hole_name = "hole"
             processor_name = processor_name.lower()
             out_name = TypeChecker.event_sources_data[stream_name]["input_stream_type"]
         else:
             out_name = TypeChecker.stream_processors_data[processor_name]["output_type"]
             hole_name = TypeChecker.stream_processors_data[processor_name]["hole_name"]
+
+        if hole_name is None:
+            hole_name = "hole"
 
         connection_kind = TypeChecker.event_sources_data[stream_name]["connection_kind"]
         assert connection_kind[0] == "conn_kind"
@@ -370,9 +374,13 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
 
         if len(connection_kind) == 4:
             min_size_uninterrupt = connection_kind[3]
+            if min_size_uninterrupt > connection_kind[2]:
+                raise RuntimeError(f"The drop threshold is bigger than the buffer size: {connection_kind}")
 
-        stream_type = TypeChecker.event_sources_data[stream_name]['output_stream_type']
-        out_event = f"STREAM_{stream_type}_out"
+        assert hole_name is not None
+        in_stream_type = TypeChecker.event_sources_data[stream_name]['input_stream_type']
+        out_stream_type = TypeChecker.event_sources_data[stream_name]['output_stream_type']
+        out_event = f"STREAM_{out_stream_type}_out"
         if copies:
             for i in range(copies):
                 name = f"{stream_name}_{i}"
@@ -392,11 +400,11 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
                 if min_size_uninterrupt is not None:
                     answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name}{i},{min_size_uninterrupt});\n"
                 answer += f"\t// register events in {name}\n"
-                for ev_name, attrs in streams_to_events_map[stream_type].items():
+                for ev_name, attrs in streams_to_events_map[in_stream_type].items():
                     if ev_name in ("hole", hole_name):
                         continue
                     answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
-                    answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
+                    answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {in_stream_type}\\n");\n'
                     answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
                     answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                     answer += f"\t\tabort();\n\t}}\n"
@@ -415,11 +423,11 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
             if min_size_uninterrupt is not None:
                 answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
             answer += f"\t// register events in {name}\n"
-            for ev_name, attrs in streams_to_events_map[stream_type].items():
+            for ev_name, attrs in streams_to_events_map[in_stream_type].items():
                 if ev_name in ("hole", hole_name):
                     continue
                 answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
-                answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
+                answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {in_stream_type}\\n");\n'
                 answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
                 answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                 answer += f"\t\tabort();\n\t}}\n"
@@ -593,7 +601,7 @@ def perf_layer_init_event_args(
 
 
 def build_switch_performance_match_case(
-    tree, input_event, mapping_in, mapping_out, stream_type, level
+    tree, input_event, mapping_in, mapping_out, in_stream_type, level
 ) -> str:
     ''' builds a case for an event that has happened in the performance layer.
     '''
@@ -610,7 +618,7 @@ def build_switch_performance_match_case(
             if event_out_name.lower() == "forward":
                 event_out_name = input_event
                 assign_args_code = (
-                    f"memcpy(outevent, inevent, sizeof(STREAM_{stream_type}_in));\n"
+                    f"memcpy(outevent, inevent, sizeof(STREAM_{in_stream_type}_in));\n"
                 )
             else:
                 assign_args_code = f"""
@@ -662,6 +670,12 @@ def get_creates_code(case, in_name, out_name, event_name, event_args) -> str:
         assert creates_stream_type[0] == "name-with-args", creates_stream_type
         creates_stream_args = creates_stream_type[2]
         creates_stream_type = creates_stream_type[1]
+        if creates_stream_type is not None:
+            if creates_stream_args[0] == 'expr_list':
+                creates_stream_args = [a[1] for a in creates_stream_args[1:]]
+            else:
+                assert creates_stream_args[0] == "expr", creates_stream_args
+                creates_stream_args = [creates_stream_args[1]]
 
     init_stream_args_code = instantiate_args(
         in_name, creates_stream_type, creates_stream_args, event_name, event_args
@@ -687,6 +701,11 @@ def get_creates_code(case, in_name, out_name, event_name, event_args) -> str:
         init_stream_args_code += (
             f"stream_args_temp->{arg['name']} = {sp_arg}; \n"
         )
+
+    for arg, arg_init in zip(event_args, creates_stream_args):
+        init_stream_args_code += (
+            f"stream_args_temp->{arg} = {arg_init}; \n"
+        )
     stream_args_code = f"""
 // we insert a new event source in the corresponding buffer group
 STREAM_{creates_stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{creates_stream_type}_ARGS));
@@ -706,6 +725,8 @@ mtx_unlock(&LOCK_{buffer_group});
         ]
     else:
         hole_name = "hole"
+        stream_processor_name = f"forward_{in_name}"
+    assert hole_name is not None
     out_event = f"STREAM_{creates_stream_type}_out"
     creates_code = f"""
             vms_stream_hole_handling hole_handling = {{
@@ -713,6 +734,7 @@ mtx_unlock(&LOCK_{buffer_group});
               .init = &init_hole_{hole_name},
               .update = &update_hole_{hole_name}
             }};
+            printf("Creating substream : {in_name}\\n");
             vms_stream *ev_source_temp = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);
             if (!ev_source_temp) {{
                 fprintf(stderr, "Failed creating substream for '{out_name}'\\n");
@@ -746,12 +768,12 @@ case {mapping_in[event_name]["enum"]}:
            #    case["process_using"] = "FORWARD"
             event_name, event_args = case["event"], case["event_args"]
             
-            stream_type = case["stream_type"]
+            # stream_type = case["stream_type"]
             
             creates_code = get_creates_code(case, in_name, out_name, event_name, event_args)
             answer += f"""
                 case {mapping_in[event_name]["enum"]}:
-                {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out,stream_type, level=level + 1)}
+                {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out, in_name, level=level + 1)}
                 {creates_code}
                 break;
                 """
@@ -2405,9 +2427,7 @@ int main(int argc, char **argv) {"{"}
     // connecting event sources
     {event_sources_conn_code(components['event_source'], streams_to_events_map)}
 
-     // activate buffers
      printf("-- creating buffers\\n");
-    {activate_buffers()}
  	monitor_buffer = vms_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
 
  	 // init buffer groups
@@ -2421,6 +2441,9 @@ int main(int argc, char **argv) {"{"}
      // create arbiter thread
      printf("-- creating arbiter thread\\n");
      thrd_create(&ARBITER_THREAD, arbiter, 0);
+
+     // activate buffers
+    {activate_buffers()}
 
      {monitor_code(ast[3], streams_to_events_map, arbiter_event_source)}
 
