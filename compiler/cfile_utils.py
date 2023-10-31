@@ -725,7 +725,7 @@ mtx_unlock(&LOCK_{buffer_group});
         ]
     else:
         hole_name = "hole"
-        stream_processor_name = f"forward_{in_name}"
+        stream_processor_name = f"forward_{creates_stream_type}"
     assert hole_name is not None
     out_event = f"STREAM_{creates_stream_type}_out"
     creates_code = f"""
