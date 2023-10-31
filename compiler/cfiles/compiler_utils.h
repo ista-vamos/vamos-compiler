@@ -39,4 +39,7 @@ void swap_dll_node(dll_node *node1, dll_node *node2);
 
 void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)); // checks that order is preserved
 
-int advance_permutation(int* arr, int permsize, int numoptions);
+// int advance_permutation(int* arr, int permsize, int numoptions);
+
+int advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first);
+int advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last);

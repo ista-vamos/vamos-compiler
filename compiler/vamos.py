@@ -32,13 +32,24 @@ def normalizeGeneratedCCode(code, depth):
     lines=code.split("\n")
     ret=""
     for line in [l.lstrip() for l in lines]:
-        if line.startsWith("}"):
+        if line.startswith("}"):
             depth-=1
             indent=' '*depth*INDENT
         ret+=indent+line+"\n"
-        if line.startsWith("{"):
+        if line.startswith("{"):
             depth+=1
             indent=' '*depth*INDENT
+    return ret
+
+def insertInNormalizedCCode(code, keyword, insertion):
+    lines=code.split("\n")
+    ret=""
+    for line in lines:
+        if line.lstrip().startswith(keyword):
+            indent=line[0:((len(line)-len(line.lstrip())))]
+            ret+=normalizeCCode(insertion, indent)+"\n"
+        else:
+            ret+=line+"\n"
     return ret
 
 vamos_varidcount=11
@@ -80,6 +91,7 @@ stdImports=[
 errors=[]
 def registerError(e):
     errors.append(e)
+    print("/".join([str(pos) for pos in e.posns])+": "+e.msg)
 
 class VamosError:
     def __init__(self, sourcePosns, msg):
@@ -99,6 +111,8 @@ class CodeSpan:
             return CodeSpan(self.start, other.end)
         else:
             return CodeSpan(other.start, self.end)
+    def __str__(self):
+        return str(self.start)
 
 class CodePos:
     def __init__(self, line, col):
@@ -171,10 +185,10 @@ class VamosSpec:
             done=True
             for streamProc in self.streamProcessors.values():
                 done=done and streamProc.initializeMembers(self, [])
-        self.arbiter.initialize(self)
-        self.monitor.initialize(self)
         for bgroup in self.bufferGroups.values():
             bgroup.initialize(self)
+        self.arbiter.initialize(self)
+        self.monitor.initialize(self)
 
 
     def toCCode(self):
@@ -390,7 +404,7 @@ struct _{self.toFieldStructName()} {"{"}
 class StreamType(ASTNode):
     def __init__(self, name, posInfo, streamfields, supertype, sharedfields, aggfields, events):
         self.name=name
-        self.fields=streamfields
+        self.flds=streamfields
         self.supertype=supertype
         self.sharedflds=sharedfields
         self.evs=events
@@ -407,6 +421,7 @@ class StreamType(ASTNode):
 
     def initializeMembers(self, spec, seen):
         self.events={}
+        self.fields={}
         if self.initializedMembers:
             return True
         for event in self.evs:
@@ -437,6 +452,8 @@ class StreamType(ASTNode):
             ev.initializeIndices(index)
             self.events[ev.name]=ev
             index+=1
+        for fld in self.flds:
+            self.fields[fld.name]=fld
         self.initializedMembers=True
         return True
     
@@ -477,7 +494,7 @@ class StreamType(ASTNode):
 {"{"}"""
         if self.supertype is not None:
             ret+=f"\n{indnt}{self.supertype.toStreamFieldStructName()} __parent;"
-        for field in self.fields:
+        for field in self.fields.values():
             ret+=f"\n{indnt}{field.toCCode()};"
         ret+=f"""
 {"};"}
@@ -513,7 +530,17 @@ class StreamType(ASTNode):
         if self.supertype is not None:
             return self.supertype.target.toSharedFieldDef()
         return ""
-        
+    
+    def getSharedField(self, fieldname):
+        if fieldname in self.fields:
+            return self.fields[fieldname]
+        return None
+    
+    def toCFieldAccess(self, field, varid):
+        if field.name in self.fields:
+            return f"((({self.toStreamFieldStructName()}*){varid})->{field.target.toCName()})"
+        else:
+            self.supertype.toCFieldAccess(field, varid)
 
 class StreamTypeRef(Reference):
     def __init__(self, name, posInfo):
@@ -660,6 +687,11 @@ class AggFieldAccess(Reference):
 class StreamFieldRef(Reference):
     def __init__(self, name, posInfo):
         super().__init__(name, posInfo)
+    def resolve(self, streamtype):
+        self.streamtype=streamtype
+        self.target=self.streamtype.target.getSharedField(self.name)
+        if self.target is None:
+            registerError(VamosError([self.pos], f"Unknown shared field \"{self.name}\" in stream type \"{self.streamtype.target.name}\""))
 
 class ProcessorRule(ASTNode):
     def __init__(self, posInfo, eventRef, eventParams, createSpec, action):
@@ -824,6 +856,11 @@ class StreamProcessorRef(Reference):
 class EventSourceRef(Reference):
     def __init__(self, name, posInfo):
         super().__init__(name, posInfo)
+    def resolve(self, env):
+        self.target=env.getEventSource(self.name)
+        if self.target is None:
+            registerError(VamosError([self.pos], f"Unknown event source \"{self.name}\""))
+
 
 class BufferGroupRef(Reference):
     def __init__(self, name, posInfo):
@@ -945,11 +982,12 @@ class BGroupIncludeIndex(ASTNode):
 class EventSourceIndexedRef(Reference):
     def __init__(self, name, posInfo, idx):
         self.index=idx
+        if isinstance(name,str):
+            name=EventSourceRef(name, posInfo)
         super().__init__(name, posInfo)
     def resolve(self, env):
-        self.target = env.getEventSource(self.name)
-        if self.target is None:
-            registerError(VamosError([self.pos], f"Unknown Event Source \"{self.name}\""))
+        self.name.resolve(env)
+        self.target = self.name.target
 
 class MatchFun(ASTNode):
     def __init__(self, name, posInfo, sources, params, exp):
@@ -1028,17 +1066,22 @@ class ArbiterRule(ASTNode):
         self.code=code
         super().__init__(posInfo)
     def initialize(self, env):
+        env=Environment(env)
         self.condition.initialize(env)
         self.code.initialize(env)
 
     def toCCode(self, depth, env):
-        return ""
+        env=Environment(env)
+        tmplt=self.condition.toCCode(depth, env)
+        return insertInNormalizedCCode(tmplt, "@SUBST@", self.code.toCCode(env))
 
 class ArbiterAlwaysCondition(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
     def initialize(self, env):
         pass
+    def toCCode(self, depth, env):
+        return ' '*INDENT*depth+"@SUBST@\n"
 
 class ArbiterMatchCondition(ASTNode):
     def __init__(self, posInfo, matchExps, whereCond):
@@ -1050,6 +1093,19 @@ class ArbiterMatchCondition(ASTNode):
             matchExp.initialize(env)
         if self.whereCond is not None:
             self.whereCond.initialize(env)
+    def toCCode(self, depth, env):
+        stck=[]
+        for matchExp in self.matchExps:
+            template=matchExp.toCCode(depth, env)
+            depth+=1
+            stck=[stck, template]
+        fin=' '*INDENT*depth+"@SUBST@\n"
+        if self.whereCond is not None:
+            fin=self.whereCond.toCCode(env)
+        while len(stck)==2:
+            fin=insertInNormalizedCCode(stck[1], "@INSERT@", fin)
+            stck=stck[0]
+        return fin
 
 class ArbiterChoice(ASTNode):
     def __init__(self, posInfo, direction, variables, group, filter):
@@ -1060,9 +1116,10 @@ class ArbiterChoice(ASTNode):
         super().__init__(posInfo)
     def initialize(self, env):
         self.group.resolve(env)
+        for var in self.variables:
+            env.addEventSourceVar(0, self.group, var)
         self.filter.initialize(env)
     def toCCode(self, depth, env):
-        indnt=' '*INDENT*depth
         ret=""
         for var in self.variables:
             ret+=env.addEventSourceVar(depth, self.group, var)
@@ -1075,45 +1132,88 @@ class ArbiterChoiceRule(ASTNode):
         self.rules=rules
         super().__init__(posInfo)
     def initialize(self, env):
+        env=Environment(env)
         self.choice.initialize(env)
         for rule in self.rules:
             rule.initialize(env)
     def toCCode(self, depth, env):
-        ret=""
-        ret+=self.choice.toCCode(depth, env)
+        env=Environment(env)
+        ret=self.choice.toCCode(depth, env)
+        ruleret=""
+        for rule in self.rules:
+            ruleret+=rule.toCCode(depth+1, env)
+        ret=insertInNormalizedCCode(ret,"@INSERT@", ruleret)
         return ret
 
-class ChooseFirst(ASTNode):
+class ChooseSources(ASTNode):
     def __init__(self, posInfo, n):
-        self.n=n
+        self.n=int(n)
         super().__init__(posInfo)
     def toCCode(self, depth, group, filter, vars, env):
         if(self.n==0):
             return ""
-        elif(self.n==1):
-            ret=f"if({group.target.readsize()}>={len(vars)})\n{'{'}\n"
-            cnt=0
-            for var in vars:
-                ret+=env.getEventSource(var).varid+" = "+group.target.getBufferFromStart(cnt)+";\n"
-                cnt+=1
         else:
             anyleftvar = varid("combinations_left")
             ret = f"int {anyleftvar} = {group.target.readsize()}>={len(vars)};\n"
-            cyclecountcond=""
-            if self.n > 0:
-                cyclecountvar = varid("cycle_count")
-                ret+= f"uint64_t {cyclecountvar} = 0;\n"
-                cyclecountcond=f" && {cyclecountvar} < {self.n}"
-            ret+= f"while({anyleftvar}{cyclecountcond})\n"+"{\n"
-        return ret
+            ret +=f"if({anyleftvar})\n{'{'}\n"
+            itervar=varid("source_iter")
+            ret+=group.target.streamType.target.toReferenceType()+" "+itervar+" = "+self.getInitialSource(group)+";\n"
+            ret+=(itervar+" = "+self.getNextSource(itervar)+";\n").join([env.getEventSource(var).varid+" = "+itervar+";\n" for var in vars])
+            permvar=""
+            if(self.n!=1):
+                if(len(vars)>1):
+                    permvar = varid("permutations")
+                    ret += f"dll_node* {permvar}[] = "+"{"+", ".join([env.getEventSource(var).varid for var in vars])+"};\n"
+                cyclecountcond=""
+                if self.n > 1:
+                    cyclecountvar = varid("cycle_count")
+                    ret+= f"uint64_t {cyclecountvar} = 0;\n"
+                    cyclecountcond=f" && {cyclecountvar} < {self.n}"
+                ret+= f"do\n"+"{\n"
+                if(len(vars)>1):
+                    cnt=0
+                    for var in vars:
+                        ret+=env.getEventSource(var).varid+" = "+permvar+"["+str(cnt)+"];\n"
+                        cnt+=1
+            if filter is not None:
+                ret+="if("+filter.toCCode(env)+")\n{\n"
+            ret+="@INSERT@\n"
+            if(self.n>1):
+                ret+=cyclecountvar+"++;\n"
+            if filter is not None:
+                ret+="}\n"
+            if(self.n!=1):
+                if(len(vars)>1):
+                    ret+=anyleftvar+" = "+self.getNextPermutation(permvar, len(vars), group)
+                else:
+                    ret+=env.getEventSource(vars[0]).varid+" = "+self.getNextSource(env.getEventSource(vars[0]).varid)+";\n"
+                    ret+=anyleftvar+" = "+env.getEventSource(vars[0]).varid+" != "+self.getInitialSource(group)+";\n"
+                ret+="}"+f"\nwhile({anyleftvar}{cyclecountcond});\n"
+            ret+="}\n"
+        return normalizeGeneratedCCode(ret, depth)
 
 
-class ChooseLast(ASTNode):
+class ChooseFirst(ChooseSources):
     def __init__(self, posInfo, n):
-        self.n=n
-        super().__init__(posInfo)
-    def toCCode(self, depth, group, filter, vars, env):
-        return ""
+        super().__init__(posInfo, n)
+    def getInitialSource(self, group):
+        return group.target.toCVariable()+".head"
+    def getNextSource(self, dllVar):
+        return dllVar+"->next"
+    def getNextPermutation(self, permvar, permsize, group):
+        return f"advance_permutation_forward({permvar}, {permsize}, {group.target.toCVariable()}.head);\n"
+
+
+class ChooseLast(ChooseSources):
+    def __init__(self, posInfo, n):
+        super().__init__(posInfo, n)
+    def getInitialSource(self, group):
+        return group.target.toCVariable()+".tail"
+    def getNextSource(self, dllVar):
+        return dllVar+"->prev"
+    def getNextPermutation(self, permvar, permsize, group):
+        return f"advance_permutation_backward({permvar}, {permsize}, {group.target.toCVariable()}.tail);\n"
+
 
 class Monitor(ASTNode):
     def __init__(self, posInfo, bufsize, rules):
@@ -1201,7 +1301,7 @@ class CCode(ASTNode):
         return True
     def initialize(self, env):
         pass
-    def toCCode(self, spec):
+    def toCCode(self, env):
         return self.text
 
 class CCodeEmpty(ASTNode):
@@ -1220,7 +1320,7 @@ class CCodeEmpty(ASTNode):
         return True
     def initialize(self, env):
         pass
-    def toCCode(self, spec):
+    def toCCode(self, env):
         return ""
 
 class CCodeEscape(ASTNode):
@@ -1255,6 +1355,8 @@ class CCodeEscape(ASTNode):
         return self
     def containsCCode(self):
         return True
+    def toCCode(self, env):
+        return self.pre.toCCode(env)+self.toCCodeEscape(env)+self.post.toCCode(env)
 
 class RuleSetReference(Reference):
     def __init__(self, name, posInfo):
@@ -1278,25 +1380,50 @@ class BufferMatch(ASTNode):
         super().__init__(posInfo)
     def initialize(self, env):
         self.buffer.resolve(env)
+        self.pattern.initialize(self.buffer, env)
+    def toCCode(self, depth, env):
+        return self.pattern.toCCode(depth, env)
 
 class MatchPatternNothing(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
+    def initialize(self, buffer, env):
+        self.buffer=buffer
+    def toCCode(self, depth, env):
+        ret=env.requestFromBuffer(self.buffer, 0)
+        ret+="if("+env.eventsInBuffer(self.buffer)+" == 0)\n{\n@INSERT@\n}\n"
+        return normalizeGeneratedCCode(ret, depth)
 
 class MatchPatternDone(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
+    def initialize(self, buffer, env):
+        self.buffer=buffer
+    def toCCode(self, depth, env):
+        ret=env.requestFromBuffer(self.buffer, 0)
+        ret+="if("+env.checkBufferIsDone(self.buffer)+")\n{\n@INSERT@\n}\n"
+        return normalizeGeneratedCCode(ret, depth)
 
 class MatchPatternSize(ASTNode):
     def __init__(self, posInfo, size):
         self.size=size
         super().__init__(posInfo)
+    def initialize(self, buffer, env):
+        self.buffer=buffer
+    def toCCode(self, depth, env):
+        ret=env.requestFromBuffer(self.buffer, 0)
+        ret+="if("+env.eventsInBuffer(self.buffer)+" >= "+str(self.size)+")\n{\n@INSERT@\n}\n"
+        return normalizeGeneratedCCode(ret, depth)
 
 class MatchPatternEvents(ASTNode):
     def __init__(self, posInfo, pre, post):
         self.pre=pre
         self.post=post
         super().__init__(posInfo)
+    def initialize(self, buffer, env):
+        self.buffer=buffer
+    def toCCode(self, depth, env):
+        return ""
 
 
 class MatchPatternEvent(ASTNode):
@@ -1304,11 +1431,15 @@ class MatchPatternEvent(ASTNode):
         self.event=ev
         self.vars=vars
         super().__init__(posInfo)
+    def initialize(self, buffer, env):
+        self.buffer=buffer
 
         
 class MatchPatternShared(MatchPatternEvent):
     def __init__(self, posInfo, vars):
         super().__init__(posInfo, "SHARED", vars)
+    def initialize(self, buffer, env):
+        pass
 
 class CCodeField(CCodeEscape):
     def __init__(self, posInfo, receiver, field):
@@ -1317,14 +1448,15 @@ class CCodeField(CCodeEscape):
         super().__init__(posInfo, CCodeEmpty(posInfo.StartSpan()), CCodeEmpty(posInfo.EndSpan()))
     def initializeEscape(self, env):
         self.receiver.resolve(env)
+        self.field.resolve(self.receiver.target.streamtype)
 
-    def toCCode(self, spec):
-        return self.receiver.target.toCFieldAccess(spec, self.field)
+    def toCCodeEscape(self, env):
+        return self.receiver.target.toCFieldAccess(env, self.field)
 
 class CCodeContinue(CCodeEscape):
     def __init__(self, posInfo):
         super().__init__(posInfo, CCodeEmpty(posInfo.StartSpan()), CCodeEmpty(posInfo.EndSpan()))
-    def toCCode(self, spec):
+    def toCCodeEscape(self, spec):
         return "goto __vamos_arbiter_continue;"
     def initializeEscape(self, env):
         pass
@@ -1343,6 +1475,8 @@ class CCodeDrop(CCodeEscape):
         super().__init__(posInfo, CCodeEmpty(posInfo.StartSpan()), CCodeEmpty(posInfo.EndSpan()))
     def initializeEscape(self, env):
         self.source.resolve(env)
+    def toCCodeEscape(self, env):
+        return ""
 
 class CCodeRemove(CCodeEscape):
     def __init__(self, posInfo, source, group):
@@ -1352,6 +1486,8 @@ class CCodeRemove(CCodeEscape):
     def initializeEscape(self, env):
         self.source.resolve(env)
         self.group.resolve(env)
+    def toCCodeEscape(self, env):
+        return ""
 
 class CCodeAdd(CCodeEscape):
     def __init__(self, posInfo, source, group):
@@ -1361,6 +1497,8 @@ class CCodeAdd(CCodeEscape):
     def initializeEscape(self, env):
         self.source.resolve(env)
         self.group.resolve(env)
+    def toCCodeEscape(self, env):
+        return ""
 
 class CCodeYield(CCodeEscape):
     def __init__(self, posInfo, ev, args):
@@ -1369,6 +1507,8 @@ class CCodeYield(CCodeEscape):
         super().__init__(posInfo, CCodeEmpty(posInfo.StartSpan()), CCodeEmpty(posInfo.EndSpan()))
     def initializeEscape(self, env):
         self.event.resolve(env.getArbiterStreamType(), env)
+    def toCCodeEscape(self, env):
+        return "__arbiter_yield_"+self.event.name+"("+", ".join([arg.toCCode(env) for arg in self.args])+");"
 
 class ExprVar(CCodeEscape):
     def __init__(self, name, posInfo):
@@ -1459,6 +1599,8 @@ class EventSourceVar:
         self.name=name
         self.streamtype=streamtype
         self.varid=varid
+    def toCFieldAccess(self, env, field):
+        return self.streamtype.target.toCFieldAccess(field, self.varid)
 
 
 class Environment:
@@ -1482,3 +1624,9 @@ class Environment:
     def getArbiterStreamType(self):
         return self.parent.getArbiterStreamType()
 
+    def checkBufferIsDone(self, buffer):
+        return ""
+    def eventsInBuffer(self, buffer):
+        return ""
+    def requestFromBuffer(self, buffer, count):
+        return ""

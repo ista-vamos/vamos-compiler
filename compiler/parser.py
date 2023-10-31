@@ -1434,7 +1434,7 @@ def p_c_field(p):
     c_expr : CCODE_FIELD
     c_arb_stmt : CCODE_FIELD
     """
-    p[0]=CCodeField(posInfoFromParser(p), EventSourceIndexedRef(p[1][0], posInfoFromParserItem(p,1), p[1][1]), p[1][2])
+    p[0]=CCodeField(posInfoFromParser(p), EventSourceIndexedRef(p[1][0], posInfoFromParserItem(p,1), p[1][1]), StreamFieldRef(p[1][2], posInfoFromParserItem(p,1)))
 
 def p_c_astmt_yield(p):
     """

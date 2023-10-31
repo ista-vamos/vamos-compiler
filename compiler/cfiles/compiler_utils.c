@@ -210,17 +210,115 @@ void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
 
 }
 
-int advance_permutation(int* arr, int permsize, int numoptions)
+int advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first)
 {
-    int* pos=arr+(permsize-1);
-    while(pos>arr)
+    dll_node** lsn=nodes+(permsize-1);
+    dll_node** pos=lsn;
+    while(pos>=nodes)
     {
-        *pos++;
-        if(*pos>=numoptions)
+        incstart:
+        (*pos)=(*pos)->next;
+        if((*pos)==first)
         {
             pos--;
+            continue;
         }
-
+        for(dll_node** x=nodes;x<pos;x++)
+        {
+            if((*pos)==*x)
+            {
+                goto incstart;
+            }
+        }
+        for(dll_node** x=pos+1;x<=lsn;x++)
+        {
+            *x=first;
+            inner_incstart:
+            for(dll_node** y=nodes;y<x;y++)
+            {
+                if((*x)==(*y))
+                {
+                    (*x)=(*x)->next;
+                    goto inner_incstart;
+                }
+            }
+        }
+        return 1;
     }
     return 0;
 }
+int advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last)
+{
+    dll_node** lsn=nodes+(permsize-1);
+    dll_node** pos=lsn;
+    while(pos>=nodes)
+    {
+        incstart:
+        (*pos)=(*pos)->prev;
+        if((*pos)==last)
+        {
+            pos--;
+            continue;
+        }
+        for(dll_node** x=nodes;x<pos;x++)
+        {
+            if((*pos)==*x)
+            {
+                goto incstart;
+            }
+        }
+        for(dll_node** x=pos+1;x<=lsn;x++)
+        {
+            *x=last;
+            inner_incstart:
+            for(dll_node** y=nodes;y<x;y++)
+            {
+                if((*x)==(*y))
+                {
+                    (*x)=(*x)->prev;
+                    goto inner_incstart;
+                }
+            }
+        }
+        return 1;
+    }
+    return 0;
+}
+
+// int advance_permutation(int* arr, int permsize, int numoptions)
+// {
+//     int* last=arr+(permsize-1);
+//     int* pos=last;
+//     while(pos>=arr)
+//     {
+//         incstart:
+//         (*pos)++;
+//         if((*pos)>=numoptions)
+//         {
+//             pos--;
+//             continue;
+//         }
+//         for(int* x=arr;x<pos;x++)
+//         {
+//             if((*pos)==*x)
+//             {
+//                 goto incstart;
+//             }
+//         }
+//         for(int* x=pos+1;x<=last;x++)
+//         {
+//             *x=0;
+//             inner_incstart:
+//             for(int* y=arr;y<x;y++)
+//             {
+//                 if((*x)==(*y))
+//                 {
+//                     (*x)++;
+//                     goto inner_incstart;
+//                 }
+//             }
+//         }
+//         return 1;
+//     }
+//     return 0;
+// }
