@@ -310,25 +310,25 @@ def p_processor_extends_spec(p):
 def p_custom_hole(p):
     """
     custom_hole : empty
-                | ID '{' list_hole_attributes '}'
+                | HOLE ID '{' list_hole_attributes '}'
     """
 
     if(len(p)==2):
         p[0]=None
     else:
-        p[0] = CustomHole(p[1], posInfoFromParser(p), p[3])
+        p[0] = CustomHole(p[2], posInfoFromParser(p), p[4])
 
-def p_hole_attribute_legacy(p):
-    """
-    hole_attribute : ID ID "=" agg_func '(' agg_func_args ')'
-    """
-    p[0] = HoleAttribute(p[2], posInfoFromParser(p), p[1], p[4], p[6])
+# def p_hole_attribute_legacy(p):
+#     """
+#     hole_attribute : ID ID "=" agg_func '(' agg_func_args ')'
+#     """
+#     p[0] = HoleAttribute(p[2], posInfoFromParser(p), p[1], p[4], p[6])
 
 def p_hole_attribute(p):
     """
-    hole_attribute : ID ':' ID "=" agg_func '(' agg_func_args ')'
+    hole_attribute : ID "=" agg_func '(' agg_func_args ')'
     """
-    p[0] = HoleAttribute(p[1], posInfoFromParser(p), p[3], p[5], p[7])
+    p[0] = HoleAttribute(p[1], posInfoFromParser(p), p[3], p[5])
 
 def p_aggfunc(p):
     """
@@ -786,6 +786,17 @@ def p_arbiter_opt_number_empty(p):
     opt_number : empty
     """
     p[0] = 1
+def p_arbiter_opt_number_any(p):
+    """
+    opt_number : ALL
+    """
+    p[0]=-1
+
+def p_arbiter_choose_direction_empty(p):
+    """
+    choose_direction : empty
+    """
+    p[0] = ChooseFirst(posInfoFromParser(p), -1)
 
 def p_arbiter_choose_direction_first(p):
     """

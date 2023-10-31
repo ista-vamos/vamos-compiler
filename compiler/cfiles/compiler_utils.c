@@ -10,6 +10,7 @@ void init_buffer_group(buffer_group *bg) {
     bg->size = 0;
     bg->head = NULL;
     bg->tail = NULL;
+    bg->was_used = 0;
 }
 
 void destroy_buffer_group(buffer_group *bg) {
@@ -30,6 +31,7 @@ void bg_insert(buffer_group *bg, shm_stream *stream, void* buffer, void *args, b
     new_node->args = args;
     new_node->next = NULL;
     new_node->prev = NULL;
+    new_node->was_used = 0;
     if(bg->size == 0) {
         bg->head = new_node;
         bg->tail = new_node;
@@ -208,3 +210,17 @@ void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
 
 }
 
+int advance_permutation(int* arr, int permsize, int numoptions)
+{
+    int* pos=arr+(permsize-1);
+    while(pos>arr)
+    {
+        *pos++;
+        if(*pos>=numoptions)
+        {
+            pos--;
+        }
+
+    }
+    return 0;
+}

@@ -7,12 +7,14 @@ typedef struct _dll_node {
     shm_stream *stream;
     void *buffer;
     void *args;
+    int was_used;
 } dll_node;
 
 typedef struct _buffer_group {
     dll_node *head; 
     dll_node *tail;
     int size;
+    int was_used;
 } buffer_group;
 
 void init_buffer_group(buffer_group *bg);
@@ -37,4 +39,4 @@ void swap_dll_node(dll_node *node1, dll_node *node2);
 
 void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)); // checks that order is preserved
 
-
+int advance_permutation(int* arr, int permsize, int numoptions);

@@ -339,6 +339,7 @@ class MyLexer(object):
         "fun": "FUN",
         "choose": "CHOOSE",
         "by": "BY",
+        "hole" : "HOLE",
         "globals": "GLOBALS",
         "startup": "STARTUP",
         "cleanup": "CLEANUP",
