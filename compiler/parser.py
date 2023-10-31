@@ -1,3 +1,4 @@
+from sys import stderr
 import ply.lex as lex
 from ply.yacc import yacc
 from lexer import MyLexer
@@ -145,8 +146,8 @@ def p_event_declaration(p):
     """
     event_decl : ID '(' list_field_decl ')'
                | ID '(' ')'
-               | ID '(' list_field_decl ')' CREATES ID
-               | ID '(' ')' CREATES ID
+               | ID '(' list_field_decl ')' CREATES name_with_args
+               | ID '(' ')' CREATES name_with_args
     """
 
     event_params_token = None
@@ -155,7 +156,7 @@ def p_event_declaration(p):
     if len(p) == 5 or len(p) == 7:
         '''we are dealing with these cases:
             ID '(' list_field_decl ')'
-            | ID '(' list_field_decl ')' CREATES ID
+            | ID '(' list_field_decl ')' CREATES name_with_args
         '''
         event_params_token = p[3]
         get_parameters_types_field_decl(p[3], params)
@@ -232,8 +233,8 @@ def p_stream_processor(p):
     input_stream_name, c_args_input = get_name_args_count(input_type)
     output_stream_name, c_args_output = get_name_args_count(output_type)
 
-    TypeChecker.assert_num_args_match(input_stream_name, c_args_input)
-    TypeChecker.assert_num_args_match(output_stream_name, c_args_output)
+   #TypeChecker.assert_num_args_match(input_stream_name, c_args_input)
+   #TypeChecker.assert_num_args_match(output_stream_name, c_args_output)
 
 
 def p_right_arrow(p):
@@ -386,12 +387,16 @@ def p_creates_part(p):
 
 def p_process_using_part(p):
     """
-    process_using_part : ID
-                       | ID PROCESS USING name_with_args
+    process_using_part : name_with_args
+                       | name_with_args PROCESS USING name_with_args
     """
     process_using = None
+    #print(p[0], p[1], p[2], p[3], p[4])
     if len(p) > 2:
         process_using = p[4]
+   #if p[1][0] != 'name-with-args':
+   #else:
+   #        process_using = p[4]
     p[0] = ("process-using-part", p[1], process_using)
 
 
@@ -1182,7 +1187,10 @@ def p_field_access(p):
 
 
 def p_error(p):
-    print(f"Syntax error at line {p.lineno} (value={p.value}, token={p.type})")
+    if p is None:
+        print(f"Syntax error, no additional information :(", file=stderr)
+    else:
+        print(f"Syntax error at line {p.lineno} (value={p.value}, token={p.type}) .. {p}", file=stderr)
 
 
 # public interface

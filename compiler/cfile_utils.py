@@ -513,7 +513,7 @@ def process_performance_match(tree) -> str:
         """
 
 
-def instantiate_args(stream_name, event_name, new_arg_names):
+def instantiate_args(stream_name, creates_stream_name, creates_stream_args, event_name, new_arg_names):
     original_args = TypeChecker.args_table[f"EVENT_{stream_name}_{event_name}"]
     declared_args = ""
     for (original_arg, new_arg) in zip(original_args, new_arg_names):
@@ -529,7 +529,7 @@ def build_drop_funcs_conds(rules, stream_name, mapping) -> str:
         event = rule["event"]
         return f"""
     if (inevent->kind == {mapping[event]["enum"]}) {"{"}
-{instantiate_args(stream_name, event, rule["event_args"])}
+{instantiate_args(stream_name, None, [], event, rule["event_args"])}
         {process_performance_match(rule["performance_match"])}
     {"}"}
         """
@@ -638,7 +638,7 @@ def build_switch_performance_match_case(
         {"}"}"""
 
 
-def get_creates_code(case, out_name, event_name, event_args) -> str:
+def get_creates_code(case, in_name, out_name, event_name, event_args) -> str:
     """_summary_
 
     Args:
@@ -652,26 +652,36 @@ def get_creates_code(case, out_name, event_name, event_args) -> str:
     if buffer_kind != "autodrop":
         raise Exception("implement of non-autodrop buffer missing!")
     
-    stream_type = case["stream_type"]
+    stream_args = []
     buffer_group = case["buff_group"]
     stream_processor_name = case["process_using"] 
     buff_size = case["connection_kind"]["size"]
+    creates_stream_type = case["stream_type"]
+
+    if isinstance(creates_stream_type, tuple):
+        assert creates_stream_type[0] == "name-with-args", creates_stream_type
+        creates_stream_args = creates_stream_type[2]
+        creates_stream_type = creates_stream_type[1]
 
     init_stream_args_code = instantiate_args(
-        stream_type, event_name, event_args
+        in_name, creates_stream_type, creates_stream_args, event_name, event_args
     )
-    original_sp_args = TypeChecker.stream_processors_data[
-        stream_processor_name
-    ]["output_args"]
-    stream_type_args = TypeChecker.args_table[stream_type] 
-    for (original_arg, new_arg) in zip(
-        TypeChecker.args_table[stream_processor_name],
-        case["process_using_args"],
-    ):
-        assert type(new_arg) == str
-        init_stream_args_code += (
-            f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
-        )
+    if stream_processor_name is not None:
+        original_sp_args = TypeChecker.stream_processors_data[
+            stream_processor_name
+        ]["output_args"]
+        stream_type_args = TypeChecker.args_table[creates_stream_type] 
+        for (original_arg, new_arg) in zip(
+            TypeChecker.args_table[stream_processor_name],
+            case["process_using_args"],
+        ):
+            assert type(new_arg) == str
+            init_stream_args_code += (
+                f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
+            )
+    else:
+        original_sp_args = []
+        stream_type_args = []
 
     for (arg, sp_arg) in zip(stream_type_args, original_sp_args):
         init_stream_args_code += (
@@ -679,7 +689,7 @@ def get_creates_code(case, out_name, event_name, event_args) -> str:
         )
     stream_args_code = f"""
 // we insert a new event source in the corresponding buffer group
-STREAM_{stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{stream_type}_ARGS));
+STREAM_{creates_stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{creates_stream_type}_ARGS));
 {init_stream_args_code}
 mtx_lock(&LOCK_{buffer_group});
 bg_insert(&BG_{buffer_group}, ev_source_temp, temp_buffer,stream_args_temp,{buffer_group}_ORDER_EXP);
@@ -690,10 +700,13 @@ mtx_unlock(&LOCK_{buffer_group});
     if min_size_uninterrupt > 2:
         stream_threshold_code = f"\tvms_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n" # MAREK knows
 
-    hole_name = TypeChecker.stream_processors_data[stream_processor_name][
-        "hole_name"
-    ]
-    out_event = f"STREAM_{stream_type}_out"
+    if stream_processor_name:
+        hole_name = TypeChecker.stream_processors_data[stream_processor_name][
+            "hole_name"
+        ]
+    else:
+        hole_name = "hole"
+    out_event = f"STREAM_{creates_stream_type}_out"
     creates_code = f"""
             vms_stream_hole_handling hole_handling = {{
               .hole_event_size = sizeof({out_event}),
@@ -715,7 +728,7 @@ mtx_unlock(&LOCK_{buffer_group});
             """
     return creates_code
 
-def get_stream_switch_cases(cases, mapping_in, mapping_out, out_name, level) -> str:
+def get_stream_switch_cases(cases, mapping_in, mapping_out, in_name, out_name, level) -> str:
     ''' generates C code that handles events through switch cases (this is only the inner code of a function)
     '''
     answer = ""
@@ -729,12 +742,13 @@ case {mapping_in[event_name]["enum"]}:
         else:
             # this is a more complicated case that creates new event sources
             assert case["buff_group"] is not None
-            assert case["process_using"] is not None
+           #if case["process_using"] is None:
+           #    case["process_using"] = "FORWARD"
             event_name, event_args = case["event"], case["event_args"]
             
             stream_type = case["stream_type"]
             
-            creates_code = get_creates_code(case, out_name, event_name, event_args)
+            creates_code = get_creates_code(case, in_name, out_name, event_name, event_args)
             answer += f"""
                 case {mapping_in[event_name]["enum"]}:
                 {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out,stream_type, level=level + 1)}
@@ -791,7 +805,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         perf_layer_list = data["perf_layer_rule_list"]
         perf_layer_code = f"""
                     switch ((inevent->head).kind) {"{"}
-        {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_out_name, level=3)}
+        {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_in_name, stream_out_name, level=3)}
                     default:
                         // by default we just forward the event
                         memcpy(outevent, inevent, sizeof(STREAM_{stream_in_name}_in));   
@@ -1969,6 +1983,8 @@ def get_special_holes_init_code(streams_to_events_map):
     for (stream_processor, data) in TypeChecker.stream_processors_data.items():
         stream_type_in = data["input_type"]
         data_hole = data["special_hole"]
+        if data_hole is None:
+            return ""
         hole_name = data["hole_name"]
         init_attributes = ""
         for attr_data in data_hole:
@@ -2022,6 +2038,8 @@ def get_special_holes_update_code(mapping):
     """    
     answer = ""
     for (stream_processor, data) in TypeChecker.stream_processors_data.items():
+        if data["special_hole"] is None:
+            continue
         stream_type = data["input_type"]
         data_events = mapping[stream_type]
         hole_name = data["hole_name"]

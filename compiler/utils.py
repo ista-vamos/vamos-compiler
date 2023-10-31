@@ -327,7 +327,8 @@ def get_stream_to_events_mapping(
         assert stream_type not in mapping.keys()
         mapping_events = {}
         for (index, (event_name, args)) in enumerate(events_data.items()):
-            data = {"args": args}
+            data = {"stream-type" : stream_type,
+                    "args": args}
             data.update(
                 {
                     "index": f"VMS_EVENT_LAST_SPECIAL_KIND + {index + 1}",

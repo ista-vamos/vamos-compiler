@@ -53,7 +53,11 @@ TypeChecker.clean_checker()
 
 # Parser
 ast = parse_program(file)
-assert ast[0] == "main_program"
+if ast is None:
+    print("Parsing the spec failed", file=sys.stderr)
+    exit(1)
+
+assert ast[0] == "main_program", ast
 components = dict()
 get_components_dict(ast[1], components) # split tree into various parts each part will be a value in the components dictionary (e.g stream_type maps to all declarations of stream_types)
 
