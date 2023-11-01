@@ -646,7 +646,7 @@ def build_switch_performance_match_case(
         {"}"}"""
 
 
-def get_creates_code(case, in_name, out_name, event_name, event_args) -> str:
+def get_creates_code(case, in_name, out_name, event_name, event_args, streams_to_events_map) -> str:
     """_summary_
 
     Args:
@@ -728,6 +728,16 @@ mtx_unlock(&LOCK_{buffer_group});
         stream_processor_name = f"forward_{creates_stream_type}"
     assert hole_name is not None
     out_event = f"STREAM_{creates_stream_type}_out"
+    reg_event_code = ""
+    for ev_name, attrs in streams_to_events_map[creates_stream_type].items():
+        if ev_name in ("hole", hole_name):
+            continue
+        reg_event_code += f"\tif (vms_stream_register_event(ev_source_temp, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
+        reg_event_code += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream <dynamic> : {creates_stream_type}\\n");\n'
+        reg_event_code += f'\t\tfprintf(stderr, "Available events:\\n");\n'
+        reg_event_code += f"\t\tvms_stream_dump_events(ev_source_temp);\n"
+        reg_event_code += f"\t\tabort();\n\t}}\n"
+
     creates_code = f"""
             vms_stream_hole_handling hole_handling = {{
               .hole_event_size = sizeof({out_event}),
@@ -742,7 +752,10 @@ mtx_unlock(&LOCK_{buffer_group});
             }}
             vms_arbiter_buffer *temp_buffer = vms_arbiter_buffer_create(ev_source_temp,  sizeof(STREAM_{out_name}_out), {buff_size});
             {stream_threshold_code}
-            vms_stream_register_all_events(ev_source_temp);
+
+            // vms_stream_register_all_events(ev_source_temp);
+            {reg_event_code}
+
             {stream_args_code}
             thrd_t temp_thread;
             thrd_create(&temp_thread, (void*)PERF_LAYER_{stream_processor_name}, temp_buffer);
@@ -750,9 +763,10 @@ mtx_unlock(&LOCK_{buffer_group});
             """
     return creates_code
 
-def get_stream_switch_cases(cases, mapping_in, mapping_out, in_name, out_name, level) -> str:
+def get_stream_switch_cases(cases, mapping, in_name, out_name, level) -> str:
     ''' generates C code that handles events through switch cases (this is only the inner code of a function)
     '''
+    mapping_in, mapping_out = mapping[in_name], mapping[out_name]
     answer = ""
     for case in cases:
         if case["stream_type"] is None:
@@ -770,7 +784,7 @@ case {mapping_in[event_name]["enum"]}:
             
             # stream_type = case["stream_type"]
             
-            creates_code = get_creates_code(case, in_name, out_name, event_name, event_args)
+            creates_code = get_creates_code(case, in_name, out_name, event_name, event_args, mapping)
             answer += f"""
                 case {mapping_in[event_name]["enum"]}:
                 {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out, in_name, level=level + 1)}
@@ -827,7 +841,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         perf_layer_list = data["perf_layer_rule_list"]
         perf_layer_code = f"""
                     switch ((inevent->head).kind) {"{"}
-        {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_in_name, stream_out_name, level=3)}
+        {get_stream_switch_cases(perf_layer_list, mapping, stream_in_name, stream_out_name, level=3)}
                     default:
                         // by default we just forward the event
                         memcpy(outevent, inevent, sizeof(STREAM_{stream_in_name}_in));   
@@ -1564,6 +1578,8 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
             interpol_code = "%d"
         elif arg_data["type"] in ["uint64_t"]:
             interpol_code = "%lu"
+        elif arg_data["type"] in ("float", "double"):
+            interpol_code = "%f"
         else:
             raise Exception(f"implement interpolation code {arg_data['type']}")
         print_args_code += f'\tprintf("{arg_data["name"]} = {interpol_code}\\n", ((STREAM_{buffer_group_type}_ARGS *) current->args)->{arg_data["name"]});\n'
@@ -1809,6 +1825,7 @@ int get_event_at_head(vms_arbiter_buffer *b) {"{"}
         return -1;
     {"}"}
     vms_event * ev = (vms_event *) (e1);
+    assert(ev->kind > 0);
     return ev->kind;
 {"}"}
     """
@@ -2277,6 +2294,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 	int i = 0;
 	while (i < i1) {"{"}
 	    vms_event * ev = (vms_event *) (e1);
+         assert(ev->kind > 0);
 	     if (ev->kind != event_kinds[i]) {"{"}
 	        return false;
 	    {"}"}
@@ -2289,6 +2307,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 	i = 0;
 	while (i < i2) {"{"}
 	    vms_event * ev = (vms_event *) e2;
+         assert(ev->kind > 0);
 	     if (ev->kind != event_kinds[i1+i]) {"{"}
 	        return false;
 	    {"}"}
