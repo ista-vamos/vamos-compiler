@@ -17,6 +17,17 @@ typedef struct _buffer_group {
     int was_used;
 } buffer_group;
 
+typedef struct ___vamos_streaminfo {
+    vms_stream * stream;
+    vms_arbiter_buffer * buffer;
+    size_t available;
+    uint64_t lastround;
+    void* data1;
+    size_t size1;
+    void* data2;
+    size_t data2;
+} __vamos_streaminfo;
+
 void init_buffer_group(buffer_group *bg);
 
 void destroy_buffer_group(buffer_group *bg);
