@@ -45,12 +45,17 @@ def declare_order_expressions():
     for (buff_name, data) in TypeChecker.buffer_group_data.items():
         if data["order"] == "round-robin":
             code = "return false;"
+        elif data["order"].startswith("fn_"):
+            answer += f"""
+bool {buff_name}_ORDER_EXP (vms_arbiter_buffer *args1, vms_arbiter_buffer *args2) {"{"}
+        return {data['order']}(args1, args2);
+{"}"}\n
+"""
         else:
-            code = f"return ((STREAM_{data['in_stream']}_ARGS *) args1)->{data['order']} > ((STREAM_{data['in_stream']}_ARGS *) args2)->{data['order']};"
-        answer += f"""
+            answer += f"""
 bool {buff_name}_ORDER_EXP (void *args1, void *args2) {"{"}
-    {code}
-{"}"}        
+        return ((STREAM_{data['in_stream']}_ARGS *) args1)->{data['order']} > ((STREAM_{data['in_stream']}_ARGS *) args2)->{data['order']};
+{"}"}\n
 """
     return answer
 
@@ -70,10 +75,11 @@ mtx_t LOCK_{buff_name};
 def init_buffer_groups():
     answer = ""
     for (buff_name, data) in TypeChecker.buffer_group_data.items():
+        bg_insert = "bg_insert_data" if data["order"].startswith("fn_") else "bg_insert"
         includes_str = ""
         if data["arg_includes"] is not None:
             for i in range(data["arg_includes"]):
-                includes_str += f"\tbg_insert(&BG_{buff_name}, EV_SOURCE_{data['includes']}_{i}, BUFFER_{data['includes']}{i},stream_args_{data['includes']}_{i},{buff_name}_ORDER_EXP);\n"
+                includes_str += f"\t{bg_insert}(&BG_{buff_name}, EV_SOURCE_{data['includes']}_{i}, BUFFER_{data['includes']}{i},stream_args_{data['includes']}_{i},{buff_name}_ORDER_EXP);\n"
         answer += f"""init_buffer_group(&BG_{buff_name});
         if (mtx_init(&LOCK_{buff_name}, mtx_plain) != 0) {"{"}
         printf("mutex init has failed for {buff_name} lock\\n");
@@ -85,14 +91,15 @@ def init_buffer_groups():
     for (event_source, data) in TypeChecker.event_sources_data.items():
         buff_name = data["include_in"]
         if buff_name is not None:
+            bg_insert = "bg_insert_data" if TypeChecker.buffer_group_data[buff_name]["order"].startswith("fn_") else "bg_insert"
             if data["copies"]:
                 for i in range(data["copies"]):
                     answer += f"""
-\tbg_insert(&BG_{buff_name}, EV_SOURCE_{event_source}_{i}, BUFFER_{event_source}{i},stream_args_{event_source}_{i},{buff_name}_ORDER_EXP);\n
+\t{bg_insert}(&BG_{buff_name}, EV_SOURCE_{event_source}_{i}, BUFFER_{event_source}{i},stream_args_{event_source}_{i},{buff_name}_ORDER_EXP);\n
         """
             else:
                 answer += f"""
-\tbg_insert(&BG_{buff_name}, EV_SOURCE_{event_source}, BUFFER_{event_source},stream_args_{event_source},{buff_name}_ORDER_EXP);\n
+\t{bg_insert}(&BG_{buff_name}, EV_SOURCE_{event_source}, BUFFER_{event_source},stream_args_{event_source},{buff_name}_ORDER_EXP);\n
         """
 
     return answer
@@ -706,12 +713,13 @@ def get_creates_code(case, in_name, out_name, event_name, event_args, streams_to
         init_stream_args_code += (
             f"stream_args_temp->{arg} = {arg_init}; \n"
         )
+    bg_insert = "bg_insert_data" if TypeChecker.buffer_group_data[buffer_group]["order"].startswith("fn_") else "bg_insert"
     stream_args_code = f"""
 // we insert a new event source in the corresponding buffer group
 STREAM_{creates_stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{creates_stream_type}_ARGS));
 {init_stream_args_code}
 mtx_lock(&LOCK_{buffer_group});
-bg_insert(&BG_{buffer_group}, ev_source_temp, temp_buffer,stream_args_temp,{buffer_group}_ORDER_EXP);
+{bg_insert}(&BG_{buffer_group}, ev_source_temp, temp_buffer,stream_args_temp,{buffer_group}_ORDER_EXP);
 mtx_unlock(&LOCK_{buffer_group});
 """
     stream_threshold_code = f""
@@ -818,7 +826,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_forward);
+        inevent = vms_stream_fetch_dropping_filter(stream, buffer, &SHOULD_KEEP_forward);
 
         if (inevent == NULL) {"{"}
             // no more events
@@ -859,7 +867,7 @@ int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_{stream_processor});
+        inevent = vms_stream_fetch_dropping_filter(stream, buffer, &SHOULD_KEEP_{stream_processor});
 
         if (inevent == NULL) {"{"}
             // no more events
@@ -1442,10 +1450,11 @@ if({choose_code} ) {"{"}
     for name in binded_streams[::-1]:
         loop_code += f"index_{name}++;\n"
         loop_code += f"{'}'}\n"
+    bg_update = "bg_update_data" if TypeChecker.buffer_group_data[buffer_name]["order"].startswith("fn_") else "bg_update"
     return f"""
 {"{"}
     mtx_lock(&LOCK_{buffer_name});
-    bg_update(&BG_{buffer_name}, {buffer_name}_ORDER_EXP);
+    {bg_update}(&BG_{buffer_name}, {buffer_name}_ORDER_EXP);
     int BG_{buffer_name}_size = BG_{buffer_name}.size;
     update_size_chosen_streams(BG_{buffer_name}_size);
     {choose_statement}

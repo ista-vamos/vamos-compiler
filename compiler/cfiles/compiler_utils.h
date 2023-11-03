@@ -1,5 +1,6 @@
 #include "vamos-buffers/core/shamon.h"
 //#include "gen/mmlib.h"
+typedef struct _vms_arbiter_buffer vms_arbiter_buffer;
 
 typedef struct _dll_node {
     struct _dll_node *next;
@@ -37,4 +38,7 @@ void swap_dll_node(dll_node *node1, dll_node *node2);
 
 void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)); // checks that order is preserved
 
+void bg_insert_data(buffer_group *bg, vms_stream *stream, void* buffer, void *args, bool (*order_exp)(vms_arbiter_buffer *, vms_arbiter_buffer *));
 
+void bg_update_data(buffer_group *bg,
+		    bool (*order_exp)(vms_arbiter_buffer *, vms_arbiter_buffer *));

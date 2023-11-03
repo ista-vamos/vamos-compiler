@@ -3,7 +3,9 @@
 #include <assert.h>
 
 #include "compiler_utils.h"
-#include "vamos-buffers/core/shamon.h"
+//#include "vamos-buffers/core/shamon.h"
+//
+typedef struct _vms_arbiter_buffer vms_arbiter_buffer;
 
 void init_buffer_group(buffer_group *bg) {
     //bg = malloc(sizeof(buffer_group));
@@ -70,6 +72,55 @@ void bg_insert(buffer_group *bg, vms_stream *stream, void* buffer, void *args, b
 
     bg->size +=1;
 }
+
+void bg_insert_data(buffer_group *bg, vms_stream *stream, void* buffer, void *args, bool (*order_exp)(vms_arbiter_buffer *, vms_arbiter_buffer *)) {
+    dll_node *new_node =  (dll_node *) malloc(sizeof(dll_node));
+    new_node->stream = stream;
+    new_node->buffer = buffer;
+    new_node->args = args;
+    new_node->next = NULL;
+    new_node->prev = NULL;
+    if(bg->size == 0) {
+        bg->head = new_node;
+        bg->tail = new_node;
+    } else {
+        // check if it goes on the tail
+        if (bg->tail->stream == stream) return;
+        if (bg->head->stream == stream) return;
+        if (order_exp(new_node->buffer, bg->tail->buffer)) {
+            bg->tail->next = new_node;
+            new_node->next = NULL;
+            new_node->prev = bg->tail;
+            bg->tail = new_node;            
+        }
+        // check if it goes on head
+        
+        else if(!order_exp(buffer, bg->head->buffer)) {
+            new_node->next = bg->head;
+            new_node->prev = NULL;
+            bg->head->prev = new_node;
+            bg->head = new_node;
+        }else {
+            // new node goes somewhere in the middle
+            dll_node *curr = bg->head;
+            while (order_exp(new_node->buffer, curr->buffer)) {
+                // curr should never be NULL at this point
+                curr = curr->next;
+            }
+
+            dll_node *prev_node = curr->prev;
+            if(curr->stream == stream || prev_node->stream == stream) return;
+            new_node->prev = prev_node;
+            new_node->next = curr;
+
+            prev_node->next = new_node;
+            curr->prev = new_node;
+        }
+    }
+
+    bg->size +=1;
+}
+
 
 
 bool bg_remove(buffer_group *bg, vms_stream *stream) {
@@ -193,18 +244,44 @@ void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
                     bg->tail = prev;
                 }
                 change = true;
-                
 
                 swap_dll_node(prev, current);
                 prev = prev->next;
             } else {
                 prev = current;
             }
-
         }
-
-
     }
+}
 
+void bg_update_data(buffer_group *bg,
+		    bool (*order_exp)(vms_arbiter_buffer *, vms_arbiter_buffer *)) {
+
+    bool change = true;
+
+    while(change) {
+        dll_node *prev = bg->head;
+        dll_node * current;
+        dll_node * temp_after;
+        change = false;
+        while(prev && prev->next){
+            current = prev->next;
+            // at this point prev and current are NOT NULL
+            if(order_exp(prev->buffer, current->buffer)){
+                if(prev == bg->head){
+                    bg->head = current;
+                }
+                if(current == bg->tail){
+                    bg->tail = prev;
+                }
+                change = true;
+
+                swap_dll_node(prev, current);
+                prev = prev->next;
+            } else {
+                prev = current;
+            }
+        }
+    }
 }
 
