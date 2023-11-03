@@ -218,7 +218,7 @@ def tessla_monitor_code(tree, mapping, arbiter_event_source) -> str:
                     break;
                 {"}"}
 {rust_monitor_events_code(possible_events)}
-            shm_monitor_buffer_consume(monitor_buffer, 1);
+            vms_monitor_buffer_consume(monitor_buffer, 1);
             {"}"}
         """
     else:
@@ -279,7 +279,7 @@ int main(int argc, char **argv) {"{"}
 {event_sources_conn_code(components['event_source'], streams_to_events_map)}
      // activate buffers
 {activate_buffers()}
- 	monitor_buffer = shm_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
+ 	monitor_buffer = vms_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
 
  		// init buffer groups
 	{init_buffer_groups()}

@@ -5,25 +5,13 @@ from tokens import reserved
 from utils import *
 
 # define some types:
-VARIABLE = "variable"
 RESERVED = "reserved"
-# FIELD_NAME = "field_name" # we do not need this type
 EVENT_NAME = "event_name"
-STREAM_TYPE_NAME = "stream_type_name"
 EVENT_SOURCE_NAME = "event_source_name"
-ARBITER_RULE_SET = "arbiter_rule_set"
 STREAM_PROCESSOR_NAME = "stream_processor_name"
-BUFFER_GROUP_NAME = "buffer_group_name"
+STREAM_TYPE_NAME = "stream_type"
 MATCH_FUN_NAME = "match_fun_name"
-
-"""
-TODO: 
-- event, stream type, and event source names are unique
-- event sources only refer to stream types that use base types
-- the arbiter refers to some valid stream type
-- on/yield/forward constructions only refer to events and event sources that are 
-- valid (including events being part of the stream type of the respective event source/the output stream type of the arbiter), and for events use the right number of arguments
-"""
+ARBITER_RULE_SET = "arbiter_rule_set"
 
 
 class TypeChecker:
@@ -57,9 +45,15 @@ class TypeChecker:
     def clean_checker():
         TypeChecker.symbol_table = dict()
         TypeChecker.args_table = dict()
+        TypeChecker.add_reserved_keywords()
 
     @staticmethod
-    def get_stream_events(stream_types):
+    def get_stream_events(stream_types: List[Tuple]) -> None:
+        """it computes the dictionary TypeChecker.stream_types_to_events which maps a stream_type name to all the events related to this stream (included inherited ones)
+
+        Args:
+            stream_types (_type_): List of trees of stream_types
+        """        
         for ast in stream_types:
             assert ast[0] == "stream_type"
             assert len(ast) == 5
@@ -74,7 +68,9 @@ class TypeChecker:
                 names = deepcopy(TypeChecker.stream_types_to_events[mother_stream])
             else:
                 names = []
-            get_events_names(ast[-1], names)
+            for name in TypeChecker.stream_types_data[stream_name]['events'].keys():
+                names.append(name)
+
             for name in names:
                 TypeChecker.insert_symbol(f"{stream_name}_{name}", EVENT_NAME)
             assert stream_name not in TypeChecker.stream_types_to_events.keys()
@@ -125,17 +121,26 @@ class TypeChecker:
         TypeChecker.args_table[symbol] = args_
 
     @staticmethod
-    def get_stream_types_data(stream_types):
+    def get_stream_types_data(stream_types: List[Tuple]) -> None:
+        """this function receives a list of trees, where each tree is a stream_type. We parse each tree in this function
+
+        Args:
+            stream_types (List[Tuple]): a list that contains trees of stream_types
+
+        Raises:
+            Exception: _description_
+        """        
         for stream_type in stream_types:
             stream_name = stream_type[1]
 
-            stream_args_names = []
-            get_parameters_names_field_decl(stream_type[2], stream_args_names)
+            # get the arguments names
             stream_args_types = []
             get_parameters_types_field_decl(stream_type[2], stream_args_types)
+
             extends_node = stream_type[3]
             if extends_node is not None:
                 raise Exception("missing implementation to extend stream types")
+            
             event_list = stream_type[4]
             events = dict()
             get_events_data(event_list, events)
@@ -144,26 +149,26 @@ class TypeChecker:
                     f"EVENT_{stream_name}_{event}", EVENT_NAME, args
                 )
             TypeChecker.stream_types_data[stream_name] = {
-                "args": stream_args_names,
-                "arg_types": stream_args_types,
-                "events": events,
-                "raw_events_list": event_list,
+                "arg_types": stream_args_types, # dictionary that contains data of args of this stream type
+                "events": events, # this is a dict that maps events names its data
             }
 
     @staticmethod
-    def assert_num_args_match(symbol, expected_n):
+    def assert_num_args_match(symbol: str, expected_n: int):
+        """_summary_
+
+        Args:
+            symbol (str): a symbol name
+            expected_n (int): number of arguments we need to validate
+        """               
         if symbol.lower() == "hole":
             if expected_n != 1:
                 raise Exception("Event hole takes 1 argument.")
+            
         elif len(TypeChecker.args_table[symbol]) != expected_n:
             raise Exception(
                 f"Only {expected_n} arguments provided to function {symbol} that receives {len(TypeChecker.args_table[symbol])} arguments."
             )
-
-    @staticmethod
-    def check_args_are_primitive(symbol: str):
-        if not TypeChecker.stream_events_are_primitive[symbol]:
-            raise Exception("Calling function that has a non-primitive type parameter")
 
     @staticmethod
     def insert_event_list(symbol, event_list_tree):
@@ -180,7 +185,8 @@ class TypeChecker:
 
     @staticmethod
     def check_performance_match(ast, output_type):
-        if ast[0] == "perf_match2":
+        if ast[0] == "perf_match2": 
+            # IF '(' expression ')' THEN performance_match ELSE performance_match
             TypeChecker.check_performance_match(
                 ast[PPPERF_MATCH_TRUE_PART], output_type
             )
@@ -188,7 +194,7 @@ class TypeChecker:
                 ast[PPPERF_MATCH_FALSE_PART], output_type
             )
         else:
-            assert ast[0] == "perf_match1"
+            assert ast[0] == "perf_match1" # performance_action
             perf_action = ast[PPPERF_MATCH_ACTION]
             output_event = perf_action[PPPERF_ACTION_FORWARD_EVENT]
             if not TypeChecker.is_event_in_stream(output_type, output_event):
@@ -239,77 +245,12 @@ class TypeChecker:
                 )
 
     @staticmethod
-    def check_arb_rule_stmt_list(ast, output_type):
-        if ast[0] == "arb_rule_stmt_l":
-            TypeChecker.check_arb_rule_stmt_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_arb_rule_stmt_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert ast[0] == "ccode_statement_l"
-            for i in range(1, len(ast)):
-                if len(ast[i]) == 0:
-                    continue
-                if ast[i][0] == "yield":
-                    if not TypeChecker.is_event_in_stream(
-                        output_type, ast[i][PPARB_RULE_STMT_YIELD_EVENT]
-                    ):
-                        raise Exception(
-                            f"Event {ast[i][PPARB_RULE_STMT_YIELD_EVENT]} does not happen in stream "
-                            f"{output_type}"
-                        )
-                elif ast[i][0] == "switch":
-                    TypeChecker.assert_symbol_type(
-                        ast[i][PPARB_RULE_STMT_SWITCH_ARB_RULE], ARBITER_RULE_SET
-                    )
+    def get_stream_processors_data(stream_processors) -> None:
+        """This function parses stream processors trees
 
-    @staticmethod
-    def check_arbiter_rule_list(ast, output_type):
-        if ast[0] == "arb_rule_list":
-            TypeChecker.check_arbiter_rule_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_arbiter_rule_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert "arbiter_rule" in ast[0]
-            TypeChecker.check_list_buff_exprs(ast[PPARB_RULE_LIST_BUFF_EXPR])
-            TypeChecker.check_arb_rule_stmt_list(ast[PPARB_RULE_STMT_LIST], output_type)
-
-    @staticmethod
-    def check_rule_set_list(ast, output_type):
-        if ast[0] == "arb_rule_set_l":
-            TypeChecker.check_rule_set_list(ast[PLIST_BASE_CASE], output_type)
-            TypeChecker.check_rule_set_list(ast[PLIST_TAIL], output_type)
-        else:
-            assert ast[0] == "arbiter_rule_set"
-            TypeChecker.check_arbiter_rule_list(ast[PPARB_RULE_LIST], output_type)
-
-    @staticmethod
-    def check_arbiter(ast):
-        assert ast[0] == "arbiter_def"
-        output_type = ast[PPARBITER_OUTPUT_TYPE]
-        TypeChecker.arbiter_output_type = output_type
-        TypeChecker.check_rule_set_list(ast[PPARBITER_RULE_SET_LIST], output_type)
-
-    @staticmethod
-    def check_monitor_rule_list(ast):
-        if ast[0] == "monitor_rule_l":
-            TypeChecker.check_monitor_rule_list(ast[PLIST_BASE_CASE], ast[PLIST_TAIL])
-        else:
-            assert ast[0] == "monitor_rule"
-            event_name = ast[PPMONITOR_RULE_EV_NAME]
-            if not TypeChecker.is_event_in_stream(
-                TypeChecker.arbiter_output_type, event_name
-            ):
-                raise Exception(
-                    f"Arbiter outputs stream of type {TypeChecker.arbiter_output_type}. "
-                    f"It does not consider event {event_name}."
-                )
-
-    @staticmethod
-    def check_monitor(ast):
-        assert ast[0] == "monitor_def"
-        TypeChecker.check_monitor_rule_list(ast[PPMONITOR_RULE_LIST])
-
-    @staticmethod
-    def get_stream_processors_data(stream_processors):
-
+        Args:
+            stream_processors (_type_): A list of trees, where each tree is a stream processor tree
+        """        
         for tree in stream_processors:
             assert tree[0] == "stream_processor"
             stream_processor_name, args = get_name_with_args(tree[1])
@@ -331,91 +272,114 @@ class TypeChecker:
             }
 
     @staticmethod
-    def insert_event_source_data(tree):
-        assert tree[0] == "event_source"
-        is_dynamic, event_src_declaration, name_arg_input_type, event_src_tail = (
-            tree[1],
-            tree[2],
-            tree[3],
-            tree[4],
-        )
+    def get_event_source_data(event_sources: List[Tuple]):
+        """This function parses event_sources trees
 
-        # processing event_source_decl
-        assert event_src_declaration[0] == "event-decl"
-        name, args = get_name_with_args(event_src_declaration[1])
-        copies = event_src_declaration[2]
+        Args:
+            event_sources (_type_): A list of trees, where each tree is an event_source tree
+        """         
+        for tree in event_sources:
+            assert tree[0] == "event_source"
+            is_dynamic, event_src_declaration, name_arg_input_type, event_src_tail = (
+                tree[1],
+                tree[2],
+                tree[3],
+                tree[4],
+            )
 
-        # processing input type
-        stream_type_name, stream_args = get_name_with_args(name_arg_input_type)
+            # processing event_source_decl
+            assert event_src_declaration[0] == "event-decl"
+            name, args = get_name_with_args(event_src_declaration[1])
+            copies = event_src_declaration[2]
 
-        # processing tail
-        assert event_src_tail[0] == "ev-source-tail"
-        connection_kind = event_src_tail[2]
-        if event_src_tail[1] == None:
-            processor_name = "forward"
-            output_type = stream_type_name
-            processor_args = []
-        else:
-            processor_name, processor_args = get_name_with_args(event_src_tail[1])
-            if processor_name.lower() == "forward":
+            # processing input type
+            stream_type_name, stream_args = get_name_with_args(name_arg_input_type)
+
+            # processing tail
+            assert event_src_tail[0] == "ev-source-tail"
+            connection_kind = event_src_tail[2]
+            if event_src_tail[1] == None:
                 processor_name = "forward"
                 output_type = stream_type_name
                 processor_args = []
             else:
-                output_type = TypeChecker.stream_processors_data[processor_name][
-                    "output_type"
-                ]
+                processor_name, processor_args = get_name_with_args(event_src_tail[1])
+                if processor_name.lower() == "forward":
+                    processor_name = "forward"
+                    output_type = stream_type_name
+                    processor_args = []
+                else:
+                    output_type = TypeChecker.stream_processors_data[processor_name][
+                        "output_type"
+                    ]
 
-        # process include in part
-        include_in = event_src_tail[3]
+            # process include in part
+            include_in = event_src_tail[3]
 
-        data = {
-            "copies": copies,
-            "args": args,
-            "input_stream_type": stream_type_name,
-            "input_stream_args": stream_args,
-            "output_stream_type": output_type,
-            "processor_name": processor_name,
-            "processor_args": processor_args,
-            "connection_kind": connection_kind,
-            "include_in": include_in,
-        }
-        assert name not in TypeChecker.event_sources_data.keys()
-        TypeChecker.event_sources_data[name] = data
-
-    @staticmethod
-    def add_buffer_group_data(tree):
-        assert tree[0] == "buff_group_def"
-        buffer_name, input_stream, includes, arg_includes, order_by = (
-            tree[1],
-            tree[2],
-            tree[3],
-            tree[4],
-            tree[5],
-        )
-
-        if arg_includes is not None:
-            if arg_includes == "all":
-                arg_includes = TypeChecker.event_sources_data[includes]["copies"]
-            arg_includes = int(arg_includes)
-
-        if order_by is not None:
-            assert order_by[0] == "order_expr"
-            order = order_by[1]
-        else:
-            order = "round-robin"
-        data = {
-            "in_stream": input_stream,
-            "includes": includes,
-            "arg_includes": arg_includes,
-            "order": order,
-        }
-        assert buffer_name not in TypeChecker.buffer_group_data.keys()
-        TypeChecker.buffer_group_data[buffer_name] = data
+            data = {
+                "copies": copies,
+                "args": args,
+                "input_stream_type": stream_type_name,
+                "input_stream_args": stream_args,
+                "output_stream_type": output_type,
+                "processor_name": processor_name,
+                "processor_args": processor_args,
+                "connection_kind": connection_kind,
+                "include_in": include_in,
+            }
+            assert name not in TypeChecker.event_sources_data.keys()
+            TypeChecker.event_sources_data[name] = data
 
     @staticmethod
-    def add_match_fun_data(tree):
-        def local_get_stream_types(local_tree, local_result):
+    def get_buffer_group_data(buff_groups: List[Tuple]) -> None:
+        """This function parses buff_groups trees
+
+        Args:
+            buff_groups (List[Tuple]): A list of trees, where each tree is a buff_groups tree
+        """   
+        for tree in buff_groups:
+            assert tree[0] == "buff_group_def"
+            buffer_name, input_stream, includes, arg_includes, order_by = (
+                tree[1],
+                tree[2],
+                tree[3],
+                tree[4],
+                tree[5],
+            )
+
+            if arg_includes is not None:
+                if arg_includes == "all":
+                    arg_includes = TypeChecker.event_sources_data[includes]["copies"]
+                arg_includes = int(arg_includes)
+
+            if order_by is not None:
+                assert order_by[0] == "order_expr"
+                order = order_by[1]
+            else:
+                order = "round-robin"
+            data = {
+                "in_stream": input_stream,
+                "includes": includes,
+                "arg_includes": arg_includes,
+                "order": order,
+            }
+            assert buffer_name not in TypeChecker.buffer_group_data.keys()
+            TypeChecker.buffer_group_data[buffer_name] = data
+
+    @staticmethod
+    def get_match_fun_data(match_fun_data: List[Tuple]):
+        """This function parses declared functions for buffer matchs trees
+
+        Args:
+            match_fun_data (List[Tuple]): A list of trees, where each tree is a function for buffer expressions tree
+        """        
+        def local_get_stream_types(local_tree: Tuple[List], local_result: Dict[str, str]):
+            """Parse buffer match expression
+
+            Args:
+                local_tree (Tuple[List]): _description_
+                local_result (Dict[str, str]): arguments to bind -> input stream
+            """            
             if local_tree[0] == "l_buff_match_exp":
                 local_get_stream_types(local_tree[1], local_result)
                 local_get_stream_types(local_tree[2], local_result)
@@ -428,39 +392,40 @@ class TypeChecker:
                 if local_tree[0] == "buff_match_exp-choose":
                     buffer_name = local_tree[-1]
                     binded_args = []
-                    get_list_ids(local_tree[2], binded_args)
+                    get_list_from_tree(local_tree[2], binded_args)
                     for ba in binded_args:
                         local_result[ba] = TypeChecker.buffer_group_data[buffer_name][
                             "in_stream"
-                        ]
+                        ] # the match args with input stream
 
-        assert tree[0] == "match_fun_def"
+        for tree in match_fun_data:
+            assert tree[0] == "match_fun_def"
 
-        match_name, temp_output_args, temp_input_args, buffer_match_expr = (
-            tree[1],
-            tree[2],
-            tree[3],
-            tree[4],
-        )
+            match_name, temp_output_args, temp_input_args, buffer_match_expr = (
+                tree[1],
+                tree[2],
+                tree[3],
+                tree[4],
+            )
 
-        output_args = []
-        if temp_output_args is not None:
-            get_list_ids(temp_output_args, output_args)
-        input_args = []
-        if temp_input_args is not None:
-            get_list_var_or_int(temp_input_args, input_args)
+            output_args = []
+            if temp_output_args is not None:
+                get_list_from_tree(temp_output_args, output_args)
+            input_args = []
+            if temp_input_args is not None:
+                get_list_from_tree(temp_input_args, input_args)
 
-        stream_types = dict()
-        local_get_stream_types(buffer_match_expr, stream_types)
-        arr_stream_types = []
-        for a in output_args:
-            arr_stream_types.append(stream_types[a])
-        assert len(arr_stream_types) == len(output_args)
-        data = {
-            "out_args": output_args,
-            "in_args": input_args,
-            "buffer_match_expr": buffer_match_expr,
-            "stream_types": arr_stream_types,
-        }
-        assert match_name not in TypeChecker.match_fun_data.keys()
-        TypeChecker.match_fun_data[match_name] = data
+            stream_types = dict()
+            local_get_stream_types(buffer_match_expr, stream_types)
+            arr_stream_types = []
+            for a in output_args:
+                arr_stream_types.append(stream_types[a])
+            assert len(arr_stream_types) == len(output_args)
+            data = {
+                "out_args": output_args,
+                "in_args": input_args,
+                "buffer_match_expr": buffer_match_expr,
+                "stream_types": arr_stream_types,
+            }
+            assert match_name not in TypeChecker.match_fun_data.keys()
+            TypeChecker.match_fun_data[match_name] = data

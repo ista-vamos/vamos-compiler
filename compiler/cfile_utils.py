@@ -8,7 +8,7 @@ from type_checker import TypeChecker, ARBITER_RULE_SET
 
 
 class StaticCounter:
-    declarations_counter = 0
+    declarations_counter = 0 # used to declare temporary arrays in a rule set for the arbiter
     calls_counter = 0
 
     match_expr_counter = 0
@@ -38,6 +38,8 @@ def get_globals_code(components, mapping, stream_types) -> str:
 
 
 def declare_order_expressions():
+    '''functions to sort streams
+    '''
     answer = ""
 
     for (buff_name, data) in TypeChecker.buffer_group_data.items():
@@ -107,48 +109,19 @@ def get_stream_struct_fields(field_declarations):
     return struct_fields
 
 
-def stream_arg_structs(stream_types) -> str:
+def events_declaration_structs(stream_name) -> str:
+    events = TypeChecker.stream_types_data[stream_name]['events']
     answer = ""
-    for tree in stream_types:
-        assert tree[0] == "stream_type"
-        if tree[2] is not None:
-            struct_fields = get_stream_struct_fields(tree[2])
-            answer += f"""
-// args for stream type {tree[1]}
-struct _{tree[1]}_ARGS {"{"}
-{struct_fields}
-{"}"}
-typedef struct  _{tree[1]}_ARGS  {tree[1]}_ARGS;
-            """
-    return answer
-
-
-def events_declaration_structs(stream_name, tree) -> str:
-    if tree[0] == "event_list":
-        return (
-            events_declaration_structs(stream_name, tree[PLIST_BASE_CASE])
-            + "\n"
-            + events_declaration_structs(stream_name, tree[PLIST_TAIL])
-        )
-    else:
-        assert tree[0] == "event_decl"
-        event_name = tree[PPEVENT_NAME]
-        fields = []
-        if tree[PPEVENT_PARAMS_LIST]:
-            get_parameters_types_field_decl(tree[PPEVENT_PARAMS_LIST], fields)
+    for (event_name, params) in events.items():
         struct_fields = ""
-        index = 0
-        for data in fields:
-            is_last = index == len(data) - 1
-            if not is_last:
-                struct_fields += f"\t{data['type']} {data['name']};\n"
-            else:
-                struct_fields += f"\t{data['type']} {data['name']};\n"
+        for data in params:
+            struct_fields += f"\t{data['type']} {data['name']};\n"
 
-        return f"""struct _EVENT_{stream_name}_{event_name} {"{"}
+        answer += f"""struct _EVENT_{stream_name}_{event_name} {"{"}
 {struct_fields}
 {"}"};
 typedef struct _EVENT_{stream_name}_{event_name} EVENT_{stream_name}_{event_name};"""
+    return answer
 
 
 def stream_type_args_structs(stream_types) -> str:
@@ -166,7 +139,12 @@ def stream_type_args_structs(stream_types) -> str:
     return answer
 
 
-def instantiate_stream_args():
+def instantiate_stream_args() -> str:
+    """This function generates code that instantiate the structs that store the shared variables among events in a given stream.
+
+    Returns:
+        _type_: c code that instantiate the structs of stream types
+    """    
     answer = ""
     for (stream_name, data) in TypeChecker.event_sources_data.items():
         has_args = len(data["input_stream_args"]) > 0
@@ -271,15 +249,21 @@ def initialize_stream_args():
     return answer
 
 
-def stream_type_structs(stream_types) -> str:
+def stream_type_structs() -> str:
+    """
+    Returns:
+        str: code of stream structs and the output struct that the streams need
+    """    
     answer = ""
-    # union_events += f"EVENT_{hole_name}_hole {hole_name};"
-    special_holes = ""
+
+    # first we compute what kind of holes streams can generate
+    special_holes = "" 
     for (_, data) in TypeChecker.stream_processors_data.items():
         hole_name = data["hole_name"]
         if hole_name is not None:
             special_holes += f"EVENT_{hole_name}_hole {hole_name};"
 
+    # now we declare stream struct. These structs contain all possible events, including holes
     for stream_name in TypeChecker.stream_types_to_events.keys():
         union_events = ""
         for name in TypeChecker.stream_types_to_events[stream_name]:
@@ -287,11 +271,11 @@ def stream_type_structs(stream_types) -> str:
 
         union_events += special_holes
         answer += f"""// event declarations for stream type {stream_name}
-{events_declaration_structs(stream_name, TypeChecker.stream_types_data[stream_name]["raw_events_list"])}
+{events_declaration_structs(stream_name)}
 
 // input stream for stream type {stream_name}
 struct _STREAM_{stream_name}_in {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         {union_events}
     {"}"}cases;
@@ -300,7 +284,7 @@ typedef struct _STREAM_{stream_name}_in STREAM_{stream_name}_in;
 
 // output stream for stream processor {stream_name}
 struct _STREAM_{stream_name}_out {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         EVENT_hole hole;
         {union_events}
@@ -311,64 +295,53 @@ typedef struct _STREAM_{stream_name}_out STREAM_{stream_name}_out;
     return answer
 
 
-def declare_event_sources(event_sources):
-    event_srcs_names = []
-    get_event_sources_names(event_sources, event_srcs_names)
+def declare_event_sources() -> str:
+    """ code to declare event sources
+
+    Returns:
+        str: C code to declare event sources
+    """    
     answer = ""
-    for name in event_srcs_names:
+    for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
-                answer += f"shm_stream *EV_SOURCE_{name}_{i};\n"
+                answer += f"vms_stream *EV_SOURCE_{name}_{i};\n"
         else:
-            answer += f"shm_stream *EV_SOURCE_{name};\n"
+            answer += f"vms_stream *EV_SOURCE_{name};\n"
     return answer
 
 
-def define_signal_handlers(event_sources):
-    event_srcs_names = []
-    get_event_sources_names(event_sources, event_srcs_names)
+def define_signal_handlers():
+
     answer = (
         "static void sig_handler(int sig) {\n" '\tprintf("signal %d caught...", sig);'
     )
-    for name in event_srcs_names:
+    for name in TypeChecker.event_sources_data.keys():
         if TypeChecker.event_sources_data[name]["copies"]:
             for i in range(TypeChecker.event_sources_data[name]["copies"]):
-                answer += f"\tshm_stream_detach(EV_SOURCE_{name}_{i});\n"
+                answer += f"\tvms_stream_detach(EV_SOURCE_{name}_{i});\n"
         else:
-            answer += f"\tshm_stream_detach(EV_SOURCE_{name});\n"
+            answer += f"\tvms_stream_detach(EV_SOURCE_{name});\n"
     answer += "\t__work_done = 1;\n}"
     return answer
 
 
-def declare_event_sources_flags(ast):
-    assert ast[0] == "main_program"
-    event_srcs_names = []
-    get_event_sources_names(ast[PMAIN_PROGRAM_EVENT_SOURCES], event_srcs_names)
-    answer = ""
-    for name in event_srcs_names:
-        answer += f"bool is_{name}_done;\n"
-    return answer
+def events_enum_kinds(streams_to_events_map) -> str:
+    """creates an enum for each event source, such that the enum contains all the possible events of the event source.
 
+    Args:
+        streams_to_events_map (_type_): _description_
 
-def stream_type_from_ev_source(event_source):
-    stream_type = event_source[3]
-    if isinstance(stream_type, tuple):
-        assert stream_type[0] == "name-with-args", stream_type
-        stream_type = stream_type[1]
-    assert isinstance(stream_type, str)
-    return stream_type
-
-
-def events_enum_kinds(event_sources, streams_to_events_map) -> str:
-    answer = ""
-    for event_source in event_sources:
-        assert event_source[0] == "event_source"
-        stream_type = stream_type_from_ev_source(event_source)
-        answer += f"enum {stream_type}_kinds {{\n"
-        assert stream_type in streams_to_events_map, stream_type
-        for _, attrs in streams_to_events_map[stream_type].items():
-            answer += f"{attrs['enum']} = {attrs['index']},\n"
-        answer += "};"
+    Returns:
+        str: _description_
+    """    
+    answer = f""
+    for stream_type_name, stream_type in streams_to_events_map.items():
+        answer += f"enum {stream_type_name}_kinds {{\n"
+        #assert stream_type in streams_to_events_map, stream_type
+        for _, attrs in stream_type.items():
+            answer += f"  {attrs['enum']} = {attrs['index']},\n"
+        answer += "};\n\n"
     return answer
 
 
@@ -381,14 +354,18 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
         stream_name, args = get_name_with_args(event_src_declaration[1])
         copies = TypeChecker.event_sources_data[stream_name]["copies"]
 
+        hole_name = None
+
         processor_name = TypeChecker.event_sources_data[stream_name]["processor_name"]
         if processor_name.lower() == "forward":
-            hole_name = "hole"
             processor_name = processor_name.lower()
             out_name = TypeChecker.event_sources_data[stream_name]["input_stream_type"]
         else:
             out_name = TypeChecker.stream_processors_data[processor_name]["output_type"]
             hole_name = TypeChecker.stream_processors_data[processor_name]["hole_name"]
+
+        if hole_name is None:
+            hole_name = "hole"
 
         connection_kind = TypeChecker.event_sources_data[stream_name]["connection_kind"]
         assert connection_kind[0] == "conn_kind"
@@ -397,64 +374,73 @@ def event_sources_conn_code(event_sources, streams_to_events_map) -> str:
 
         if len(connection_kind) == 4:
             min_size_uninterrupt = connection_kind[3]
+            if min_size_uninterrupt > connection_kind[2]:
+                raise RuntimeError(f"The drop threshold is bigger than the buffer size: {connection_kind}")
 
-        stream_type = stream_type_from_ev_source(event_source)
-        out_event = f"STREAM_{stream_type}_out"
+        assert hole_name is not None
+        in_stream_type = TypeChecker.event_sources_data[stream_name]['input_stream_type']
+        out_stream_type = TypeChecker.event_sources_data[stream_name]['output_stream_type']
+        out_event = f"STREAM_{out_stream_type}_out"
         if copies:
             for i in range(copies):
                 name = f"{stream_name}_{i}"
                 answer += f"\t// connect to event source {name}\n"
                 answer += f"""
-                shm_stream_hole_handling hh_{name} = {{
+                vms_stream_hole_handling hh_{name} = {{
                   .hole_event_size = sizeof({out_event}),
                   .init = &init_hole_{hole_name},
                   .update = &update_hole_{hole_name}
                 }};\n
                 """
-                answer += f'\tEV_SOURCE_{name} = shm_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
+                answer += f'\tEV_SOURCE_{name} = vms_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
                 answer += f"\tif (!EV_SOURCE_{name}) {{\n"
                 answer += f'\t\tfprintf(stderr, "Failed creating stream {name}\\n");'
                 answer += "\tabort();}\n"
-                answer += f"\tBUFFER_{stream_name}{i} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
+                answer += f"\tBUFFER_{stream_name}{i} = vms_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
                 if min_size_uninterrupt is not None:
-                    answer += f"\tshm_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name}{i},{min_size_uninterrupt});\n"
+                    answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name}{i},{min_size_uninterrupt});\n"
                 answer += f"\t// register events in {name}\n"
-                for ev_name, attrs in streams_to_events_map[stream_type].items():
+                for ev_name, attrs in streams_to_events_map[in_stream_type].items():
                     if ev_name in ("hole", hole_name):
                         continue
-                    answer += f"\tif (shm_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
-                    answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
+                    answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
+                    answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {in_stream_type}\\n");\n'
                     answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
-                    answer += f"\t\tshm_stream_dump_events(EV_SOURCE_{name});\n"
+                    answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                     answer += f"\t\tabort();\n\t}}\n"
         else:
             name = f"{stream_name}"
             answer += f"\t// connect to event source {name}\n"
             answer += f"""
-                shm_stream_hole_handling hh_{name} = {{
+                vms_stream_hole_handling hh_{name} = {{
                   .hole_event_size = sizeof({out_event}),
                   .init = &init_hole_{hole_name},
                   .update = &update_hole_{hole_name}
                 }};\n
                 """
-            answer += f'\tEV_SOURCE_{name} = shm_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
-            answer += f"\tBUFFER_{stream_name} = shm_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
+            answer += f'\tEV_SOURCE_{name} = vms_stream_create_from_argv("{name}", argc, argv, &hh_{name});\n'
+            answer += f"\tBUFFER_{stream_name} = vms_arbiter_buffer_create(EV_SOURCE_{name},  sizeof(STREAM_{out_name}_out), {buff_size});\n\n"
             if min_size_uninterrupt is not None:
-                answer += f"\tshm_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
+                answer += f"\tvms_arbiter_buffer_set_drop_space_threshold(BUFFER_{stream_name},{min_size_uninterrupt});\n"
             answer += f"\t// register events in {name}\n"
-            for ev_name, attrs in streams_to_events_map[stream_type].items():
+            for ev_name, attrs in streams_to_events_map[in_stream_type].items():
                 if ev_name in ("hole", hole_name):
                     continue
-                answer += f"\tif (shm_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
-                answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {stream_type}\\n");\n'
+                answer += f"\tif (vms_stream_register_event(EV_SOURCE_{name}, \"{ev_name}\", {attrs['enum']}) < 0) {{\n"
+                answer += f'\t\tfprintf(stderr, "Failed registering event {ev_name} for stream {name} : {in_stream_type}\\n");\n'
                 answer += f'\t\tfprintf(stderr, "Available events:\\n");\n'
-                answer += f"\t\tshm_stream_dump_events(EV_SOURCE_{name});\n"
+                answer += f"\t\tvms_stream_dump_events(EV_SOURCE_{name});\n"
                 answer += f"\t\tabort();\n\t}}\n"
 
     return answer
 
 
 def declare_evt_srcs_threads() -> str:
+    """
+
+    Returns:
+        str: C code that instantiates thread object for each event source
+    """    
     answer = ""
     for (event_source, data) in TypeChecker.event_sources_data.items():
         if data["copies"]:
@@ -468,6 +454,8 @@ def declare_evt_srcs_threads() -> str:
 
 
 def declare_arbiter_buffers(components, ast) -> str:
+    ''' declares a buffer for each event sources, from which the arbiter peeks
+    '''
     assert ast[0] == "main_program"
     event_srcs_names = get_event_sources_copies(components["event_source"])
 
@@ -475,11 +463,11 @@ def declare_arbiter_buffers(components, ast) -> str:
     for (name, copies) in event_srcs_names:
         if copies == 0:
             answer += f"// Arbiter buffer for event source {name}\n"
-            answer += f"shm_arbiter_buffer *BUFFER_{name};\n\n"
+            answer += f"vms_arbiter_buffer *BUFFER_{name};\n\n"
         else:
             for i in range(copies):
                 answer += f"// Arbiter buffer for event source {name} ({i})\n"
-                answer += f"shm_arbiter_buffer *BUFFER_{name}{i};\n\n"
+                answer += f"vms_arbiter_buffer *BUFFER_{name}{i};\n\n"
     return answer
 
 
@@ -508,10 +496,9 @@ def activate_buffers() -> str:
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}{i}"
-                answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{name}, true);\n"
+                answer += f"\tvms_arbiter_buffer_set_active(BUFFER_{name}, true);\n"
         else:
-            answer += f"\tshm_arbiter_buffer_set_active(BUFFER_{event_source}, true);\n"
-
+            answer += f"\tvms_arbiter_buffer_set_active(BUFFER_{event_source}, true);\n"
     return answer
 
 
@@ -534,7 +521,7 @@ def process_performance_match(tree) -> str:
         """
 
 
-def instantiate_args(stream_name, event_name, new_arg_names):
+def instantiate_args(stream_name, creates_stream_name, creates_stream_args, event_name, new_arg_names):
     original_args = TypeChecker.args_table[f"EVENT_{stream_name}_{event_name}"]
     declared_args = ""
     for (original_arg, new_arg) in zip(original_args, new_arg_names):
@@ -550,15 +537,23 @@ def build_drop_funcs_conds(rules, stream_name, mapping) -> str:
         event = rule["event"]
         return f"""
     if (inevent->kind == {mapping[event]["enum"]}) {"{"}
-{instantiate_args(stream_name, event, rule["event_args"])}
+{instantiate_args(stream_name, None, [], event, rule["event_args"])}
         {process_performance_match(rule["performance_match"])}
     {"}"}
         """
 
 
 def build_should_keep_funcs(mapping) -> str:
+    """this generate the code of functions for stream processors. Each of this functions filter the events that should be forwared to the arbiter.
+
+    Args:
+        mapping (_type_): streams_to_events_map (see variable in main.py)
+
+    Returns:
+        str: C code of filters for stream processes
+    """    
     answer = f"""
-bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
+bool SHOULD_KEEP_forward(vms_stream * s, vms_event * e) {"{"}
     return true;
 {"}"}
 """
@@ -571,7 +566,8 @@ bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
             extend_processor_name = "forward"
         if extend_processor_name.lower() == "forward":
             extend_processor_name = extend_processor_name.lower()
-        answer += f"""bool SHOULD_KEEP_{stream_processor}(shm_stream * s, shm_event * inevent) {"{"}
+        answer += f"""bool SHOULD_KEEP_{stream_processor}(vms_stream * s, vms_event * inevent) {"{"}
+    // function for stream {stream_processor} that determines whether an event should be forwarded
 {build_drop_funcs_conds(performance_layer_rule_list, stream_type, mapping[stream_type])}
     return SHOULD_KEEP_{extend_processor_name}(s, inevent);
 {"}"}
@@ -581,7 +577,7 @@ bool SHOULD_KEEP_forward(shm_stream * s, shm_event * e) {"{"}
 
 def assign_args(event_name, args, list_expressions, level) -> str:
     expressions = []
-    get_expressions(list_expressions, expressions)
+    get_list_from_tree(list_expressions, expressions)
     answer = ""
     tabs = "\t" * level
     for (arg, expr) in zip(args, expressions):
@@ -589,11 +585,13 @@ def assign_args(event_name, args, list_expressions, level) -> str:
     return answer
 
 
-def declare_performance_layer_args(
+def perf_layer_init_event_args(
     event_case: str, mapping_in: Dict[str, Any], ids
 ) -> str:
+    """initializes the args of a created event in the performance layer.
+    """    
     to_declare_ids = []
-    get_expressions(ids, to_declare_ids)
+    get_list_from_tree(ids, to_declare_ids)
     assert len(to_declare_ids) == len(mapping_in["args"])
     answer = ""
     args = mapping_in["args"]
@@ -602,9 +600,11 @@ def declare_performance_layer_args(
     return answer
 
 
-def build_switch_performance_match(
-    tree, input_event, mapping_in, mapping_out, stream_type, level
+def build_switch_performance_match_case(
+    tree, input_event, mapping_in, mapping_out, in_stream_type, level
 ) -> str:
+    ''' builds a case for an event that has happened in the performance layer.
+    '''
     if tree[0] == "perf_match1":
         performance_action = tree[PPERF_MATCH_ACTION]
         if performance_action[0] == "perf_act_drop":
@@ -618,13 +618,13 @@ def build_switch_performance_match(
             if event_out_name.lower() == "forward":
                 event_out_name = input_event
                 assign_args_code = (
-                    f"memcpy(outevent, inevent, sizeof(STREAM_{stream_type}_in));\n"
+                    f"memcpy(outevent, inevent, sizeof(STREAM_{in_stream_type}_in));\n"
                 )
             else:
                 assign_args_code = f"""
 {tabs}(outevent->head).kind = {mapping_out[event_out_name]["enum"]};
 {tabs}(outevent->head).id = (inevent->head).id;
-{declare_performance_layer_args(event_out_name,
+{perf_layer_init_event_args(event_out_name,
                                 mapping_in[event_out_name],
                                 performance_action[PPPERF_ACTION_FORWARD_EXPRS])}
 {assign_args(event_out_name, mapping_out[event_out_name]["args"],
@@ -634,98 +634,146 @@ def build_switch_performance_match(
             return f"""
 
 {tabs}{assign_args_code}
-{tabs}shm_arbiter_buffer_write_finish(buffer);
+{tabs}vms_arbiter_buffer_write_finish(buffer);
             """
     else:
         assert tree[0] == "perf_match2"
         return f"""
         if ({tree[PPPERF_MATCH_EXPRESSION]}) {"{"}
-            {build_switch_performance_match(tree[PPPERF_MATCH_TRUE_PART], input_event, mapping_in, mapping_out, level + 1)}
+            {build_switch_performance_match_case(tree[PPPERF_MATCH_TRUE_PART], input_event, mapping_in, mapping_out, level + 1)}
         {"}"} else {"{"}
-            {build_switch_performance_match(tree[PPPERF_MATCH_FALSE_PART], input_event, mapping_in, mapping_out, level + 1)}
+            {build_switch_performance_match_case(tree[PPPERF_MATCH_FALSE_PART], input_event, mapping_in, mapping_out, level + 1)}
         {"}"}"""
 
 
-def get_stream_switch_cases(cases, mapping_in, mapping_out, out_name, level) -> str:
-    answer = ""
-    for case in cases:
-        if case["stream_type"] is None:
-            answer += f"""
-case {mapping_in[event_name]["enum"]}:
-    {build_switch_performance_match(case["performance_match"], event_name, mapping_in, mapping_out, level=level + 1)}
-    break;"""
-        else:
-            assert case["buff_group"] is not None
-            assert case["process_using"] is not None
-            creates_code = ""
-            buffer_kind = case["connection_kind"]["type"]
-            event_name, event_args = case["event"], case["event_args"]
-            buffer_group = case["buff_group"]
-            stream_processor_name = case["process_using"]
-            if buffer_kind != "autodrop":
-                raise Exception("implement of non-autodrop buffer missing!")
-            buff_size = case["connection_kind"]["size"]
-            stream_type = case["stream_type"]
-            init_stream_args_code = instantiate_args(
-                stream_type, event_name, event_args
+def get_creates_code(case, in_name, out_name, event_name, event_args) -> str:
+    """_summary_
+
+    Args:
+        case (_type_): is a dictionary that contains data of the event that creates dynamically even sources
+        out_name (_type_): _description_
+
+    Returns:
+        str: Generates C code to create dynamically event sources
+    """  
+    buffer_kind = case["connection_kind"]["type"]
+    if buffer_kind != "autodrop":
+        raise Exception("implement of non-autodrop buffer missing!")
+    
+    stream_args = []
+    buffer_group = case["buff_group"]
+    stream_processor_name = case["process_using"] 
+    buff_size = case["connection_kind"]["size"]
+    creates_stream_type = case["stream_type"]
+
+    if isinstance(creates_stream_type, tuple):
+        assert creates_stream_type[0] == "name-with-args", creates_stream_type
+        creates_stream_args = creates_stream_type[2]
+        creates_stream_type = creates_stream_type[1]
+        if creates_stream_type is not None:
+            if creates_stream_args[0] == 'expr_list':
+                creates_stream_args = [a[1] for a in creates_stream_args[1:]]
+            else:
+                assert creates_stream_args[0] == "expr", creates_stream_args
+                creates_stream_args = [creates_stream_args[1]]
+
+    init_stream_args_code = instantiate_args(
+        in_name, creates_stream_type, creates_stream_args, event_name, event_args
+    )
+    if stream_processor_name is not None:
+        original_sp_args = TypeChecker.stream_processors_data[
+            stream_processor_name
+        ]["output_args"]
+        stream_type_args = TypeChecker.args_table[creates_stream_type] 
+        for (original_arg, new_arg) in zip(
+            TypeChecker.args_table[stream_processor_name],
+            case["process_using_args"],
+        ):
+            assert type(new_arg) == str
+            init_stream_args_code += (
+                f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
             )
-            original_sp_args = TypeChecker.stream_processors_data[
-                stream_processor_name
-            ]["output_args"]
-            stream_type_args = TypeChecker.args_table[stream_type]
+    else:
+        original_sp_args = []
+        stream_type_args = []
 
-            for (original_arg, new_arg) in zip(
-                TypeChecker.args_table[stream_processor_name],
-                case["process_using_args"],
-            ):
-                assert type(new_arg) == str
-                init_stream_args_code += (
-                    f"{original_arg[2][1]} {original_arg[1]} = {new_arg};\n"
-                )
+    for (arg, sp_arg) in zip(stream_type_args, original_sp_args):
+        init_stream_args_code += (
+            f"stream_args_temp->{arg['name']} = {sp_arg}; \n"
+        )
 
-            for (arg, sp_arg) in zip(stream_type_args, original_sp_args):
-                init_stream_args_code += (
-                    f"stream_args_temp->{arg['name']} = {sp_arg}; \n"
-                )
-
-            stream_args_code = f"""
-STREAM_{stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{stream_type}_ARGS));
+    for arg, arg_init in zip(event_args, creates_stream_args):
+        init_stream_args_code += (
+            f"stream_args_temp->{arg} = {arg_init}; \n"
+        )
+    stream_args_code = f"""
+// we insert a new event source in the corresponding buffer group
+STREAM_{creates_stream_type}_ARGS * stream_args_temp = malloc(sizeof(STREAM_{creates_stream_type}_ARGS));
 {init_stream_args_code}
 mtx_lock(&LOCK_{buffer_group});
 bg_insert(&BG_{buffer_group}, ev_source_temp, temp_buffer,stream_args_temp,{buffer_group}_ORDER_EXP);
 mtx_unlock(&LOCK_{buffer_group});
 """
-            stream_threshold_code = f""
-            min_size_uninterrupt = case["connection_kind"]["threshold"]
-            if min_size_uninterrupt > 2:
-                stream_threshold_code = f"\tshm_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n"
+    stream_threshold_code = f""
+    min_size_uninterrupt = case["connection_kind"]["threshold"]
+    if min_size_uninterrupt > 2:
+        stream_threshold_code = f"\tvms_arbiter_buffer_set_drop_space_threshold(temp_buffer,{min_size_uninterrupt});\n" # MAREK knows
 
-            hole_name = TypeChecker.stream_processors_data[stream_processor_name][
-                "hole_name"
-            ]
-            out_event = f"STREAM_{stream_type}_out"
-            creates_code = f"""
-            shm_stream_hole_handling hole_handling = {{
+    if stream_processor_name:
+        hole_name = TypeChecker.stream_processors_data[stream_processor_name][
+            "hole_name"
+        ]
+    else:
+        hole_name = "hole"
+        stream_processor_name = f"forward_{creates_stream_type}"
+    assert hole_name is not None
+    out_event = f"STREAM_{creates_stream_type}_out"
+    creates_code = f"""
+            vms_stream_hole_handling hole_handling = {{
               .hole_event_size = sizeof({out_event}),
               .init = &init_hole_{hole_name},
               .update = &update_hole_{hole_name}
             }};
-            shm_stream *ev_source_temp = shm_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);
+            printf("Creating substream : {in_name}\\n");
+            vms_stream *ev_source_temp = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);
             if (!ev_source_temp) {{
                 fprintf(stderr, "Failed creating substream for '{out_name}'\\n");
                 abort();
             }}
-            shm_arbiter_buffer *temp_buffer = shm_arbiter_buffer_create(ev_source_temp,  sizeof(STREAM_{out_name}_out), {buff_size});
+            vms_arbiter_buffer *temp_buffer = vms_arbiter_buffer_create(ev_source_temp,  sizeof(STREAM_{out_name}_out), {buff_size});
             {stream_threshold_code}
-            shm_stream_register_all_events(ev_source_temp);
+            vms_stream_register_all_events(ev_source_temp);
             {stream_args_code}
             thrd_t temp_thread;
             thrd_create(&temp_thread, (void*)PERF_LAYER_{stream_processor_name}, temp_buffer);
-            shm_arbiter_buffer_set_active(temp_buffer, true);
+            vms_arbiter_buffer_set_active(temp_buffer, true);
             """
+    return creates_code
+
+def get_stream_switch_cases(cases, mapping_in, mapping_out, in_name, out_name, level) -> str:
+    ''' generates C code that handles events through switch cases (this is only the inner code of a function)
+    '''
+    answer = ""
+    for case in cases:
+        if case["stream_type"] is None:
+            # if we do not need another stream processor..
+            answer += f"""
+case {mapping_in[event_name]["enum"]}:
+    {build_switch_performance_match_case(case["performance_match"], event_name, mapping_in, mapping_out, level=level + 1)}
+    break;"""
+        else:
+            # this is a more complicated case that creates new event sources
+            assert case["buff_group"] is not None
+           #if case["process_using"] is None:
+           #    case["process_using"] = "FORWARD"
+            event_name, event_args = case["event"], case["event_args"]
+            
+            # stream_type = case["stream_type"]
+            
+            creates_code = get_creates_code(case, in_name, out_name, event_name, event_args)
             answer += f"""
                 case {mapping_in[event_name]["enum"]}:
-                {build_switch_performance_match(case['performance_match'], event_name, mapping_in, mapping_out,stream_type, level=level + 1)}
+                {build_switch_performance_match_case(case['performance_match'], event_name, mapping_in, mapping_out, in_name, level=level + 1)}
                 {creates_code}
                 break;
                 """
@@ -733,33 +781,41 @@ mtx_unlock(&LOCK_{buffer_group});
 
 
 def declare_perf_layer_funcs(mapping) -> str:
+    """
+    Args:
+        mapping (_type_): streams_to_events_map (see variable in main.py)
+
+    Returns:
+        str: C code for the performance layer. This functions drop or forward events.
+    """    
     answer = ""
 
     for stream_type in TypeChecker.stream_types_data.keys():
         answer += f"""
-int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
+int PERF_LAYER_forward_{stream_type} (vms_arbiter_buffer *buffer) {"{"}
+    // this function forwards everything
     atomic_fetch_add(&count_event_streams, 1); 
-    shm_stream *stream = shm_arbiter_buffer_stream(buffer);   
+    vms_stream *stream = vms_arbiter_buffer_stream(buffer);   
     void *inevent;
     void *outevent;   
 
     // wait for active buffer
-    while ((!shm_arbiter_buffer_active(buffer))){"{"}
+    while ((!vms_arbiter_buffer_active(buffer))){"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = stream_filter_fetch(stream, buffer, &SHOULD_KEEP_forward);
+        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_forward);
 
         if (inevent == NULL) {"{"}
             // no more events
             break;
         {"}"}
-        outevent = shm_arbiter_buffer_write_ptr(buffer);
+        outevent = vms_arbiter_buffer_write_ptr(buffer);
 
         memcpy(outevent, inevent, sizeof(STREAM_{stream_type}_in));
-        shm_arbiter_buffer_write_finish(buffer);
+        vms_arbiter_buffer_write_finish(buffer);
         
-        shm_stream_consume(stream, 1);
+        vms_stream_consume(stream, 1);
     {"}"}  
     atomic_fetch_add(&count_event_streams, -1);
     return 0;   
@@ -769,40 +825,37 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
         stream_in_name = data["input_type"]
         stream_out_name = data["output_type"]
         perf_layer_list = data["perf_layer_rule_list"]
-        if data["special_hole"] is None:
-            hole_name = ""
-        else:
-            hole_name = f"_{data['hole_name']}"
         perf_layer_code = f"""
                     switch ((inevent->head).kind) {"{"}
-        {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_out_name, level=3)}
+        {get_stream_switch_cases(perf_layer_list, mapping[stream_in_name], mapping[stream_out_name], stream_in_name, stream_out_name, level=3)}
                     default:
+                        // by default we just forward the event
                         memcpy(outevent, inevent, sizeof(STREAM_{stream_in_name}_in));   
-                        shm_arbiter_buffer_write_finish(buffer);
+                        vms_arbiter_buffer_write_finish(buffer);
                 {"}"}
                     """
-        answer += f"""int PERF_LAYER_{stream_processor} (shm_arbiter_buffer *buffer) {"{"}
+        answer += f"""int PERF_LAYER_{stream_processor} (vms_arbiter_buffer *buffer) {"{"}
         atomic_fetch_add(&count_event_streams, 1); 
-    shm_stream *stream = shm_arbiter_buffer_stream(buffer);   
+    vms_stream *stream = vms_arbiter_buffer_stream(buffer);   
     STREAM_{stream_in_name}_in *inevent;
     STREAM_{stream_out_name}_out *outevent;   
 
     // wait for active buffer
-    while ((!shm_arbiter_buffer_active(buffer))){"{"}
+    while ((!vms_arbiter_buffer_active(buffer))){"{"}
         sleep_ns(10);
     {"}"}
     while(true) {"{"}
-        inevent = stream_filter_fetch(stream, buffer, &SHOULD_KEEP_{stream_processor});
+        inevent = vms_stream_filter_fetch(stream, buffer, &SHOULD_KEEP_{stream_processor});
 
         if (inevent == NULL) {"{"}
             // no more events
             break;
         {"}"}
-        outevent = shm_arbiter_buffer_write_ptr(buffer);
+        outevent = vms_arbiter_buffer_write_ptr(buffer);
 
         {perf_layer_code}
         
-        shm_stream_consume(stream, 1);
+        vms_stream_consume(stream, 1);
     {"}"}  
     atomic_fetch_add(&count_event_streams, -1);   
     return 0;
@@ -815,7 +868,7 @@ int PERF_LAYER_forward_{stream_type} (shm_arbiter_buffer *buffer) {"{"}
 def declare_rule_sets(tree):
     assert tree[0] == "arbiter_def"
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     rule_set_declarations = ""
     for name in rule_set_names:
@@ -829,10 +882,10 @@ def are_buffers_done():
         copies = data["copies"]
         if copies:
             for i in range(copies):
-                code += f"\tif (!shm_arbiter_buffer_is_done(BUFFER_{event_source}{i})) return 0;\n"
+                code += f"\tif (!vms_arbiter_buffer_is_done(BUFFER_{event_source}{i})) return 0;\n"
         else:
             code += (
-                f"\tif (!shm_arbiter_buffer_is_done(BUFFER_{event_source})) return 0;\n"
+                f"\tif (!vms_arbiter_buffer_is_done(BUFFER_{event_source})) return 0;\n"
             )
 
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
@@ -843,7 +896,7 @@ def are_buffers_done():
     is_selection_successful = bg_get_first_n(&BG_{buffer_group}, 1, &chosen_streams);
     mtx_unlock(&LOCK_{buffer_group});
     for (int i = 0; i < BG_{buffer_group}_size; i++) {"{"}
-        if (!shm_arbiter_buffer_is_done(chosen_streams[i]->buffer)) return 0;
+        if (!vms_arbiter_buffer_is_done(chosen_streams[i]->buffer)) return 0;
     {"}"}
 """
 
@@ -859,7 +912,7 @@ def arbiter_code(tree, components, existing_buffers, args):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     rule_set_invocations = ""
     for name in rule_set_names:
@@ -898,7 +951,7 @@ def arbiter_code(tree, components, existing_buffers, args):
                 }}
             }}
         {"}"}
-        shm_monitor_set_finished(monitor_buffer);
+        vms_monitor_set_finished(monitor_buffer);
         return 0;
     {"}"}
         """
@@ -908,7 +961,7 @@ def arbiter_code(tree, components, existing_buffers, args):
     while (!are_streams_done()) {"{"}
 
     {"}"}
-    shm_monitor_set_finished(monitor_buffer);
+    vms_monitor_set_finished(monitor_buffer);
     return 0;
 {"}"}
     """
@@ -1016,7 +1069,7 @@ def rule_set_streams_condition(
             if buffer_name in context.keys():
                 raise Exception("buffer name is in context created in match fun")
         binded_streams = []
-        get_list_ids(tree[2], binded_streams)
+        get_list_from_tree(tree[2], binded_streams)
         return get_buff_groups_combinations_code(
             buffer_name,
             binded_streams,
@@ -1034,7 +1087,7 @@ def rule_set_streams_condition(
 
         if arg1 is not None:
             fun_bind_args = []
-            get_list_ids(arg1, fun_bind_args)
+            get_list_from_tree(arg1, fun_bind_args)
             for (original_name, new_name) in zip(
                 TypeChecker.match_fun_data[match_fun_name]["out_args"], fun_bind_args
             ):
@@ -1042,7 +1095,7 @@ def rule_set_streams_condition(
 
         if arg2 is not None:
             new_args = []
-            get_list_var_or_int(arg2, new_args)
+            get_list_from_tree(arg2, new_args)
             for (original_arg, new_arg) in zip(
                 TypeChecker.match_fun_data[match_fun_name]["in_args"], new_args
             ):
@@ -1066,7 +1119,7 @@ def construct_arb_rule_outevent(
 ) -> str:
     local_args = []
 
-    get_expressions(raw_args, local_args)
+    get_list_from_tree(raw_args, local_args)
 
     answer = f"""arbiter_outevent->head.kind = {mapping[output_ev_source][output_event]["index"]};
     arbiter_outevent->head.id = arbiter_counter++;
@@ -1088,14 +1141,13 @@ def construct_arb_rule_outevent(
 def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
     if tree[0] == "switch":
         switch_rule_name = tree[PPARB_RULE_STMT_SWITCH_ARB_RULE]
-        # TypeChecker.assert_symbol_type(switch_rule_name, ARBITER_RULE_SET)
         return f"current_rule_set = SWITCH_TO_RULE_SET_{switch_rule_name};\n"
     if tree[0] == "yield":
         return f"""
-        arbiter_outevent = (STREAM_{TypeChecker.arbiter_output_type}_out *)shm_monitor_buffer_write_ptr(monitor_buffer);
+        arbiter_outevent = (STREAM_{TypeChecker.arbiter_output_type}_out *)vms_monitor_buffer_write_ptr(monitor_buffer);
          {construct_arb_rule_outevent(mapping, output_ev_source,
                                       tree[PPARB_RULE_STMT_YIELD_EVENT], tree[PPARB_RULE_STMT_YIELD_EXPRS])}
-         shm_monitor_buffer_write_finish(monitor_buffer);
+         vms_monitor_buffer_write_finish(monitor_buffer);
         """
     if tree[0] == "drop":
         event_source_ref = tree[PPARB_RULE_STMT_DROP_EV_SOURCE]
@@ -1103,7 +1155,7 @@ def process_arb_rule_stmt(tree, mapping, output_ev_source) -> str:
         event_source_name = event_source_ref[1]
         if event_source_ref[2] is not None:
             event_source_name += f"{event_source_ref[2]}"
-        return f"\tshm_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]}); ARBITER_DROPPED_ = true;\n"
+        return f"\tvms_arbiter_buffer_drop(BUFFER_{event_source_name}, {tree[PPARB_RULE_STMT_DROP_INT]}); ARBITER_DROPPED_ = true;\n"
     if tree[0] == "remove":
         buffer_group = tree[2][1]
         return f"mtx_lock(&LOCK_{buffer_group});\nbg_remove(&BG_{buffer_group}, {tree[1]});\nmtx_unlock(&LOCK_{buffer_group});\n"
@@ -1206,7 +1258,7 @@ def declare_arrays(scanned_kinds) -> str:
 def declare_monitor_args(tree, event_name, event_data, count_tabs) -> str:
     tabs = "\t" * count_tabs
     ids = []
-    get_list_ids(tree, ids)
+    get_list_from_tree(tree, ids)
     args = event_data["args"]
     assert len(ids) == len(args)
 
@@ -1257,7 +1309,7 @@ def monitor_code(tree, mapping, arbiter_event_source) -> str:
                 break;
             {"}"}
 {monitor_events_code(tree[PPMONITOR_RULE_LIST], arbiter_event_source, possible_events, 2)}
-        shm_monitor_buffer_consume(monitor_buffer, 1);
+        vms_monitor_buffer_consume(monitor_buffer, 1);
     {"}"}
     """
     else:
@@ -1330,8 +1382,8 @@ def get_buff_groups_combinations_code(
     def get_local_inner_code():
         answer = ""
         for name in binded_streams:
-            answer += f"shm_stream *{name} = chosen_streams[index_{name}]->stream;\n"
-            answer += f"shm_arbiter_buffer *BUFFER_{name} = chosen_streams[index_{name}]->buffer;\n"
+            answer += f"vms_stream *{name} = chosen_streams[index_{name}]->stream;\n"
+            answer += f"vms_arbiter_buffer *BUFFER_{name} = chosen_streams[index_{name}]->buffer;\n"
             answer += f"STREAM_{stream_type}_ARGS *stream_args_{name} = (STREAM_{stream_type}_ARGS *)chosen_streams[index_{name}]->args;\n"
             buffer_peeks_res = dict()
             existing_buffers = set()
@@ -1348,7 +1400,7 @@ def get_buff_groups_combinations_code(
                 )
             if name in buffer_peeks_res.keys():
                 answer += f"char* e1_{name}; size_t i1_{name}; char* e2_{name}; size_t i2_{name};\n"
-                answer += f"int count_{name} = shm_arbiter_buffer_peek(BUFFER_{name}, {buffer_peeks_res[name]}, "
+                answer += f"int count_{name} = vms_arbiter_buffer_peek(BUFFER_{name}, {buffer_peeks_res[name]}, "
                 answer += f"(void**)&e1_{name}, &i1_{name}, (void**)&e2_{name}, &i2_{name});\n"
 
         answer += f"""
@@ -1403,6 +1455,9 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
     else:
 
         if tree[0] == "arbiter_rule1":
+            ''' ON list_buff_match_exp WHERE BEGIN_CCODE ccode_l_where_expression BEGIN_CCODE arbiter_rule_stmt_list
+                 | ON list_buff_match_exp BEGIN_CCODE arbiter_rule_stmt_list
+            '''
             binded_args = dict()
             get_buff_math_binded_args(
                 tree[PPARB_RULE_LIST_BUFF_EXPR],
@@ -1427,7 +1482,7 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
             if len(stream_drops.keys()) != 0:
                 assert len(stream_drops.keys()) > 0
                 for (stream, count) in stream_drops.items():
-                    stream_drops_code += f"\tshm_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
+                    stream_drops_code += f"\tvms_arbiter_buffer_drop(BUFFER_{stream}, {count}); ARBITER_DROPPED_ = true;\n"
             inner_code = f"""
             {define_binded_args(binded_args, stream_types)}
            
@@ -1446,9 +1501,12 @@ def arbiter_rule_code(tree, mapping, stream_types, output_ev_source) -> str:
             {rule_set_streams_condition(tree[PPARB_RULE_LIST_BUFF_EXPR], mapping, stream_types, inner_code)}
             """
         else:
+            '''| CHOOSE listids arb_choose_middle_part '{' arbiter_rule_list '}'
+                | CHOOSE choose_order listids arb_choose_middle_part '{' arbiter_rule_list '}'
+            '''
             assert tree[0] == "arbiter_rule2"
             binded_streams = []
-            get_list_ids(tree[2], binded_streams)
+            get_list_from_tree(tree[2], binded_streams)
             choose_condition = tree[4]
 
             choose_order = tree[1]
@@ -1488,7 +1546,7 @@ def buffer_peeks(tree, existing_buffers):
     for (buffer_name, desired_count) in buffers_to_peek.items():
         answer += (
             f"char* e1_{buffer_name}; size_t i1_{buffer_name}; char* e2_{buffer_name}; size_t i2_{buffer_name};\n"
-            f"int count_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, {desired_count}, "
+            f"int count_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, {desired_count}, "
             f"(void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
         )
 
@@ -1502,7 +1560,6 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
     print_args_code = ""
 
     for arg_data in TypeChecker.stream_types_data[buffer_group_type]["arg_types"]:
-        iterpol_code = ""
         if arg_data["type"] in ["int", "uint16_t", "int16_t"]:
             interpol_code = "%d"
         elif arg_data["type"] in ["uint64_t"]:
@@ -1516,7 +1573,7 @@ def print_dll_node_code(buffer_group_name, buffer_to_src_idx):
 {print_args_code}
     printf(\"{"}"}\\n\");
     char* e1_BG; size_t i1_BG; char* e2_BG; size_t i2_BG;
-    int COUNT_BG_TEMP_ = shm_arbiter_buffer_peek(current->buffer, 5, (void**)&e1_BG, &i1_BG, (void**)&e2_BG, &i2_BG);
+    int COUNT_BG_TEMP_ = vms_arbiter_buffer_peek(current->buffer, 5, (void**)&e1_BG, &i1_BG, (void**)&e2_BG, &i2_BG);
     printf(\"{buffer_group_name}[%d].buffer{"{"}\\n\", i);
     print_buffer_prefix(current->buffer, {buffer_to_src_idx[buffer_group_type]}, i1_BG + i2_BG, COUNT_BG_TEMP_, e1_BG, i1_BG, e2_BG, i2_BG);
     printf(\"{"}"}\\n\");
@@ -1555,13 +1612,13 @@ def check_progress(rule_set_name, tree, existing_buffers, components, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
     answer += f"fprintf(stderr, \"No rule in rule set '{rule_set_name}' matched even though there was enough events, CYCLING WITH NO PROGRESS (exiting)!\\n\");"
     answer += "__work_done=1; abort();"
@@ -1596,13 +1653,13 @@ def check_progress(rule_set_name, tree, existing_buffers, components, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                    answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_{buffer_name} = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
+                answer += f"\tcount_{buffer_name} = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1_{buffer_name}, &i1_{buffer_name}, (void**)&e2_{buffer_name}, &i2_{buffer_name});\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1_{buffer_name} + i2_{buffer_name}, count_{buffer_name}, e1_{buffer_name}, i1_{buffer_name}, e2_{buffer_name}, i2_{buffer_name});\n"
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
         answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
@@ -1638,13 +1695,13 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
                 buffer_name = ev_source + str(i)
                 if buffer_name in buffers_to_peek.keys():
                     answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                    answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                    answer += f"\tcount_ = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                     answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
         else:
             buffer_name = ev_source
             if buffer_name in buffers_to_peek.keys():
                 answer += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                answer += f"\tcount_ = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+                answer += f"\tcount_ = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 5, (void**)&e1, &i1, (void**)&e2, &i2);\n"
                 answer += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {src_idx}, i1 + i2, count_, e1, i1, e2, i2);\n"
     for (buffer_group, data) in TypeChecker.buffer_group_data.items():
         answer += f'printf("***** BUFFER GROUPS *****\\n");\n'
@@ -1655,7 +1712,11 @@ def dump_buffer_groups_code(tree, existing_buffers, args):
 
 
 def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, components, args):
+    '''C code that declares a function for each rule set
+    '''
     def local_explore_rule_list(local_tree) -> str:
+        ''' parses a rule set
+        '''
         if local_tree[0] == "arb_rule_list":
             return local_explore_rule_list(local_tree[1]) + local_explore_rule_list(
                 local_tree[2]
@@ -1669,6 +1730,9 @@ def build_rule_set_functions(tree, mapping, stream_types, existing_buffers, comp
             )
 
     def local_explore_arb_rule_set_list(local_tree) -> str:
+        ''' 
+        parses a list of rule sets
+        '''
         if local_tree is not None:
             if local_tree[0] == "arb_rule_set_l":
                 return local_explore_arb_rule_set_list(
@@ -1708,18 +1772,18 @@ def destroy_all():
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}_{i}"
-                answer += f"\tshm_stream_destroy(EV_SOURCE_{name});\n"
+                answer += f"\tvms_stream_destroy(EV_SOURCE_{name});\n"
         else:
-            answer += f"\tshm_stream_destroy(EV_SOURCE_{event_source});\n"
+            answer += f"\tvms_stream_destroy(EV_SOURCE_{event_source});\n"
 
     # destroy buffers
     for (event_source, data) in TypeChecker.event_sources_data.items():
         if data["copies"]:
             for i in range(data["copies"]):
                 name = f"{event_source}{i}"
-                answer += f"\tshm_arbiter_buffer_free(BUFFER_{name});\n"
+                answer += f"\tvms_arbiter_buffer_free(BUFFER_{name});\n"
         else:
-            answer += f"\tshm_arbiter_buffer_free(BUFFER_{event_source});\n"
+            answer += f"\tvms_arbiter_buffer_free(BUFFER_{event_source});\n"
 
     answer += "\tfree(monitor_buffer);\n"
     answer += "\tfree(chosen_streams);\n"
@@ -1736,15 +1800,15 @@ def destroy_all():
 
 def get_event_at_head():
     return f"""
-int get_event_at_head(shm_arbiter_buffer *b) {"{"}
+int get_event_at_head(vms_arbiter_buffer *b) {"{"}
     void * e1; size_t i1;
     void * e2; size_t i2;
 
-    int count = shm_arbiter_buffer_peek(b, 0, &e1, &i1, &e2, &i2);
+    int count = vms_arbiter_buffer_peek(b, 0, &e1, &i1, &e2, &i2);
     if (count == 0) {"{"}
         return -1;
     {"}"}
-    shm_event * ev = (shm_event *) (e1);
+    vms_event * ev = (vms_event *) (e1);
     return ev->kind;
 {"}"}
     """
@@ -1778,12 +1842,12 @@ def print_event_name(stream_types, mapping):
 
     return f"""
 void print_event_name(int ev_src_index, int event_index) {"{"}
-    if (event_index == -1) {"{"}
-        printf("None\\n");
+    if (event_index <= 0) {"{"}
+        printf("<invalid (%d)>\\n", event_index);
         return;
     {"}"}
 
-    if (event_index == 1) {"{"}
+    if (event_index == VMS_EVENT_HOLE_KIND) {"{"}
         printf("hole\\n");
         return;
     {"}"}
@@ -1794,12 +1858,12 @@ void print_event_name(int ev_src_index, int event_index) {"{"}
     """
 
 
-def get_event_name(stream_types, mapping):
+def get_event_name(mapping):
     def local_build_if_from_events(events) -> str:
         answer = ""
         for (event, data) in events.items():
             answer += f"""
-        if (event_index == {data['index']} ) {"{"}
+        if (event_index == {data['enum']} ) {"{"}
             return "{event}";
         {"}"}
             """
@@ -1819,11 +1883,11 @@ def get_event_name(stream_types, mapping):
 
     return f"""
 const char *get_event_name(int ev_src_index, int event_index) {"{"}
-    if (event_index == -1) {"{"}
-        return "<none>";
+    if (event_index <= 0) {"{"}
+        return "<invalid>";
     {"}"}
     
-    if (event_index == 1) {"{"}
+    if (event_index == VMS_EVENT_HOLE_KIND) {"{"}
         return "hole";
     {"}"}
     
@@ -1844,12 +1908,12 @@ def print_buffers_state():
             for i in range(copies):
                 buffer_name = event_source + str(i)
                 code += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-                code += f"\tcount = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, &e1, &i1, &e2, &i2);\n"
+                code += f"\tcount = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, &e1, &i1, &e2, &i2);\n"
                 code += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {event_source_index}, i1 + i2, count, e1, i1, e2, i2);\n"
         else:
             buffer_name = event_source
             code += f"\tfprintf(stderr, \"Prefix of '{buffer_name}':\\n\");\n"
-            code += f"\tcount = shm_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, (void**)&e1, &i1, (void**)&e2, &i2);\n"
+            code += f"\tcount = vms_arbiter_buffer_peek(BUFFER_{buffer_name}, 10, (void**)&e1, &i1, (void**)&e2, &i2);\n"
             code += f"\tprint_buffer_prefix(BUFFER_{buffer_name}, {event_source_index}, i1 + i2, count, e1, i1, e2, i2);\n"
     return f"""
 void print_buffers_state() {"{"}
@@ -1857,11 +1921,11 @@ void print_buffers_state() {"{"}
 {code}
 {"}"}
 
-static void print_buffer_state(shm_arbiter_buffer *buffer) {{
+static void print_buffer_state(vms_arbiter_buffer *buffer) {{
     int count;
     void *e1, *e2;
     size_t i1, i2;
-    count = shm_arbiter_buffer_peek(buffer, 10, (void**)&e1, &i1, (void**)&e2, &i2);
+    count = vms_arbiter_buffer_peek(buffer, 10, (void**)&e1, &i1, (void**)&e2, &i2);
     print_buffer_prefix(buffer, -1, i1 + i2, count, e1, i1, e2, i2);
 }}
 
@@ -1872,7 +1936,7 @@ def declare_const_rule_set_names(tree):
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     ans = ""
     for (index, name) in enumerate(rule_set_names):
@@ -1881,10 +1945,11 @@ def declare_const_rule_set_names(tree):
 
 
 def declare_rule_set_counters(tree):
+    # MAREK knows
     assert tree[0] == "arbiter_def"
 
     rule_set_names = []
-    get_rule_set_names(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
+    get_list_from_tree(tree[PPARBITER_RULE_SET_LIST], rule_set_names)
 
     ans = ""
     for (index, name) in enumerate(rule_set_names):
@@ -1893,6 +1958,7 @@ def declare_rule_set_counters(tree):
 
 
 def get_imports():
+    # we return a string with all the libraries we should include
     return f"""
 #include <threads.h>
 #include <signal.h>
@@ -1913,9 +1979,11 @@ def get_imports():
 """
 
 
-def special_hole_structs():
+def special_hole_structs() -> str:
+    """C code that creates the struct of holes
+    """    
     answer = ""
-    for (stream_processor, data) in TypeChecker.stream_processors_data.items():
+    for (_, data) in TypeChecker.stream_processors_data.items():
         if data["special_hole"] is not None:
             # TODO: set correctly data types of fields
             hole_name = data["hole_name"]
@@ -1937,6 +2005,8 @@ def get_special_holes_init_code(streams_to_events_map):
     for (stream_processor, data) in TypeChecker.stream_processors_data.items():
         stream_type_in = data["input_type"]
         data_hole = data["special_hole"]
+        if data_hole is None:
+            return ""
         hole_name = data["hole_name"]
         init_attributes = ""
         for attr_data in data_hole:
@@ -1968,7 +2038,7 @@ def get_special_holes_init_code(streams_to_events_map):
             init_attributes += f"\th->{attr_data['attribute']} = {value};\n"
         hole_enum = streams_to_events_map[stream_type_in][hole_name]["enum"]
         answer += f"""
-static void init_hole_{hole_name}(shm_event *hev) {"{"}
+static void init_hole_{hole_name}(vms_event *hev) {"{"}
   STREAM_{stream_type_in}_in *e = (STREAM_{stream_type_in}_in*) hev;
   e->head.kind = {hole_enum};
 
@@ -1980,9 +2050,18 @@ static void init_hole_{hole_name}(shm_event *hev) {"{"}
 
 
 def get_special_holes_update_code(mapping):
+    """
+    generates the code that uses aggregation functions to update holes
+    Args:
+        mapping (_type_): streams_to_events_map (look variable at main.py)
 
+    Raises:
+        Exception: _description_
+    """    
     answer = ""
     for (stream_processor, data) in TypeChecker.stream_processors_data.items():
+        if data["special_hole"] is None:
+            continue
         stream_type = data["input_type"]
         data_events = mapping[stream_type]
         hole_name = data["hole_name"]
@@ -2012,7 +2091,7 @@ def get_special_holes_update_code(mapping):
 {event_code}
             break;"""
         answer += f"""
-static void update_hole_{hole_name}(shm_event *hev, shm_event *ev) {"{"}
+static void update_hole_{hole_name}(vms_event *hev, vms_event *ev) {"{"}
     STREAM_{stream_type}_in *e = (STREAM_{stream_type}_in*) hev;
     EVENT_{hole_name}_hole *h = &e->cases.{hole_name};
     switch (ev->kind) {"{"}
@@ -2048,11 +2127,11 @@ def outside_main_code(
 #define vamos_check(cond)
 #define vamos_assert(cond)
 #else
-#define vamos_check(cond) do {{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: check '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); }} }} while(0)
-#define vamos_assert(cond) do{{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; }} }} while(0)
+#define vamos_check(cond) do {{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: check '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); }} }} while(0)
+#define vamos_assert(cond) do{{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; }} }} while(0)
 #endif
 
-#define vamos_hard_assert(cond) do{{ if (!cond) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; abort();}} }} while(0)
+#define vamos_hard_assert(cond) do{{ if (!(cond)) {{fprintf(stderr, "\033[31m%s:%s:%d: assert '" #cond "' failed!\033[0m\\n", __FILE__, __func__, __LINE__); print_buffers_state(); __work_done = 1; abort();}} }} while(0)
 
 struct _EVENT_hole
 {"{"}
@@ -2061,74 +2140,95 @@ struct _EVENT_hole
 typedef struct _EVENT_hole EVENT_hole;
 
 struct _EVENT_hole_wrapper {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         EVENT_hole hole;
     {"}"}cases;
 {"}"};
 
-static void init_hole_hole(shm_event *hev) {"{"}
+static void init_hole_hole(vms_event *hev) {"{"}
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
-    h->head.kind = shm_get_hole_kind();
+    h->head.kind = vms_event_get_hole_kind();
     h->cases.hole.n = 0;
 {"}"}
 
-static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
+static void update_hole_hole(vms_event *hev, vms_event *ev) {"{"}
     (void)ev;
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
     ++h->cases.hole.n;
 {"}"}
-{events_enum_kinds(components["event_source"], streams_to_events_map)}
+
+// declares the structs of stream types needed for event sources
+{events_enum_kinds(streams_to_events_map)}
+
+// declare hole structs
 {special_hole_structs()}
-{stream_type_structs(components["stream_type"])}
+
+// declare stream types structs
+{stream_type_structs()}
+
+// functions that create a hole and update holes
 {generate_special_hole_functions(streams_to_events_map)}
 
+// Declare structs that store the data of streams shared among events in the struct
 {stream_type_args_structs(components["stream_type"])}
 
-
+// instantiate the structs that store the variables shared among events in the same struct
 {instantiate_stream_args()}
-int arbiter_counter;
-static bool ARBITER_MATCHED_ = false;
-static bool ARBITER_DROPPED_ = false;
-static size_t match_and_no_drop_num = 0;
+
+int arbiter_counter; // int used as id for the events that the arbiter generates, it increases for every event it generates
+
+static bool ARBITER_MATCHED_ = false; // in each iteration we set this to true if it mathces
+static bool ARBITER_DROPPED_ = false; // in each iteration we set this to true if it drops the event
+static size_t match_and_no_drop_num = 0; // count of consecutive matches without dropping the event (we raise a warning when we reach a certain number of this)
 
 // monitor buffer
-shm_monitor_buffer *monitor_buffer;
+vms_monitor_buffer *monitor_buffer; // where we store the events that the monitor needs to process
 
 bool is_selection_successful;
 dll_node **chosen_streams; // used in rule set for get_first/last_n
-int current_size_chosen_stream = 0;
+int current_size_chosen_stream = 0; // current number of elements in  chosen_streams
 
 void update_size_chosen_streams(const int s) {"{"}
     if (s > current_size_chosen_stream) {"{"}
+        // if s is greater then we need to increase the size of chosen_streams
         free(chosen_streams);
-        chosen_streams = (dll_node **) calloc(s, sizeof(dll_node*));
-        current_size_chosen_stream = s;
+        chosen_streams = (dll_node **) calloc(s, sizeof(dll_node*)); // allocate more space
+        current_size_chosen_stream = s; // set the new number of elements in chosen_streams
     {"}"}
 {"}"}
 
 // globals code
 {get_globals_code(components, streams_to_events_map, stream_types)}
+
+// functions for streams that determine if an event should be forwarded to the monitor
 {build_should_keep_funcs(streams_to_events_map)}
 
-atomic_int count_event_streams = 0;
+atomic_int count_event_streams = 0; // number of active event sources
 
 // declare event streams
-{declare_event_sources(components["event_source"])}
+{declare_event_sources()}
 
 // event sources threads
 {declare_evt_srcs_threads()}
 
 // declare arbiter thread
 thrd_t ARBITER_THREAD;
+
+// we index rule sets
 {declare_const_rule_set_names(ast[2])}
-{declare_rule_set_counters(ast[2])}
-int current_rule_set = {get_first_const_rule_set_name(ast[2])};
+
+
+{declare_rule_set_counters(ast[2])} // MAREK knows
+
+
+int current_rule_set = {get_first_const_rule_set_name(ast[2])}; // initial arbiter rule set
 
 {declare_arbiter_buffers(components, ast)}
 
 
 // buffer groups
+// sorting streams functions
 {declare_order_expressions()}
 {declare_buffer_groups()}
 
@@ -2138,8 +2238,8 @@ int current_rule_set = {get_first_const_rule_set_name(ast[2])};
 long unsigned no_consecutive_matches_limit = 1UL<<35;
 int no_matches_count = 0;
 
-bool are_there_events(shm_arbiter_buffer * b) {"{"}
-  return shm_arbiter_buffer_is_done(b) > 0;
+bool are_there_events(vms_arbiter_buffer * b) {"{"}
+  return vms_arbiter_buffer_is_done(b) > 0;
 {"}"}
 
 {are_buffers_done()}
@@ -2155,19 +2255,20 @@ static inline bool are_streams_done() {"{"}
     return (count_event_streams == 0 && are_buffers_done() && !ARBITER_MATCHED_) || __work_done;
 {"}"}
 
-static inline bool is_buffer_done(shm_arbiter_buffer *b) {"{"}
-    return shm_arbiter_buffer_is_done(b);
+static inline bool is_buffer_done(vms_arbiter_buffer *b) {"{"}
+    return vms_arbiter_buffer_is_done(b);
 {"}"}
 
 
 static inline
 bool check_at_least_n_events(size_t count, size_t n) {"{"}
-    // count is the result after calling shm_arbiter_buffer_peek
+    // count is the result after calling vms_arbiter_buffer_peek
 	return count >= n;
 {"}"}
 
 static
 bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, size_t ev_size, int event_kinds[], int n_events) {"{"}
+    // this functions checks that a buffer have the same kind of event as the array event_kinds
     assert(n_events > 0);
 	if (count < n_events) {"{"}
 	    return false;
@@ -2175,7 +2276,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 
 	int i = 0;
 	while (i < i1) {"{"}
-	    shm_event * ev = (shm_event *) (e1);
+	    vms_event * ev = (vms_event *) (e1);
 	     if (ev->kind != event_kinds[i]) {"{"}
 	        return false;
 	    {"}"}
@@ -2187,7 +2288,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 
 	i = 0;
 	while (i < i2) {"{"}
-	    shm_event * ev = (shm_event *) e2;
+	    vms_event * ev = (vms_event *) e2;
 	     if (ev->kind != event_kinds[i1+i]) {"{"}
 	        return false;
 	    {"}"}
@@ -2201,7 +2302,7 @@ bool are_events_in_head(char* e1, size_t i1, char* e2, size_t i2, int count, siz
 {"}"}
 
 /*
-static inline dump_event_data(shm_event *ev, size_t ev_size) {{
+static inline dump_event_data(vms_event *ev, size_t ev_size) {{
     unsigned char *data = ev;
     fprintf(stderr, "[");
     for (unsigned i = sizeof(*ev); i < ev_size; ++i) {{
@@ -2211,24 +2312,24 @@ static inline dump_event_data(shm_event *ev, size_t ev_size) {{
 }}
 */
 
-{get_event_name(stream_types, streams_to_events_map)}
+{get_event_name(streams_to_events_map)}
 
 /* src_idx = -1 if unknown */
 static void
-print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt, char* e1, size_t i1, char* e2, size_t i2) {"{"}
+print_buffer_prefix(vms_arbiter_buffer *b, int src_idx, size_t n_events, int cnt, char* e1, size_t i1, char* e2, size_t i2) {"{"}
     if (cnt == 0) {{
         fprintf(stderr, " empty\\n");
         return;
     }}
-    const size_t ev_size = shm_arbiter_buffer_elem_size(b);
+    const size_t ev_size = vms_arbiter_buffer_elem_size(b);
     int n = 0;
 	int i = 0;
 	while (i < i1) {"{"}
-	    shm_event * ev = (shm_event *) (e1);
+	    vms_event * ev = (vms_event *) (e1);
         fprintf(stderr, "  %d: {{id: %5lu, kind: %3lu", ++n,
-                shm_event_id(ev), shm_event_kind(ev));
+                vms_event_id(ev), vms_event_kind(ev));
         if (src_idx != -1)
-            fprintf(stderr, " -> %-12s", get_event_name(src_idx, shm_event_kind(ev)));
+            fprintf(stderr, " -> %-12s", get_event_name(src_idx, vms_event_kind(ev)));
         /*dump_event_data(ev, ev_size);*/
         fprintf(stderr, "}}\\n");
         if (--n_events == 0)
@@ -2239,11 +2340,11 @@ print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt
 
 	i = 0;
 	while (i < i2) {"{"}
-	    shm_event * ev = (shm_event *) e2;
+	    vms_event * ev = (vms_event *) e2;
         fprintf(stderr, "  %d: {{id: %5lu, kind: %3lu", ++n,
-                shm_event_id(ev), shm_event_kind(ev));
+                vms_event_id(ev), vms_event_kind(ev));
         if (src_idx != -1)
-            fprintf(stderr, " -> %-12s", get_event_name(src_idx, shm_event_kind(ev)));
+            fprintf(stderr, " -> %-12s", get_event_name(src_idx, vms_event_kind(ev)));
         /*dump_event_data(ev, ev_size);*/
         fprintf(stderr, "}}\\n");
 
@@ -2257,17 +2358,18 @@ print_buffer_prefix(shm_arbiter_buffer *b, int src_idx, size_t n_events, int cnt
 
 
 static inline
-shm_event * get_event_at_index(char* e1, size_t i1, char* e2, size_t i2, size_t size_event, int element_index) {"{"}
+vms_event * get_event_at_index(char* e1, size_t i1, char* e2, size_t i2, size_t size_event, int element_index) {"{"}
 	if (element_index < i1) {"{"}
-		return (shm_event *) (e1 + (element_index*size_event));
+		return (vms_event *) (e1 + (element_index*size_event));
 	{"}"} else {"{"}
 		element_index -=i1;
-		return (shm_event *) (e2 + (element_index*size_event));
+		return (vms_event *) (e2 + (element_index*size_event));
 	{"}"}
 {"}"}
 
-//arbiter outevent
+//arbiter outevent (the monitor looks at this)
 STREAM_{arbiter_event_source}_out *arbiter_outevent;
+
 {declare_rule_sets(ast[2])}
 {print_event_name(stream_types, streams_to_events_map)}
 {get_event_at_head()}
@@ -2275,9 +2377,10 @@ STREAM_{arbiter_event_source}_out *arbiter_outevent;
 {build_rule_set_functions(ast[2], streams_to_events_map, stream_types, existing_buffers, components, args)}
 {arbiter_code(ast[2], components, existing_buffers, args)}
 
-{define_signal_handlers(components["event_source"])}
+{define_signal_handlers()} // MAREK knows
 
 static void setup_signals() {{
+    // MAREK knows
     if (signal(SIGINT, sig_handler) == SIG_ERR) {{
 	perror("failed setting SIGINT handler");
     }}
@@ -2315,14 +2418,17 @@ int main(int argc, char **argv) {"{"}
     setup_signals();
 
     arbiter_counter = 10;
+    // startup code
 	{get_pure_c_code(components, 'startup')}
+
+    // init. event sources streams
     {initialize_stream_args()}
 
+    // connecting event sources
     {event_sources_conn_code(components['event_source'], streams_to_events_map)}
-     // activate buffers
+
      printf("-- creating buffers\\n");
-    {activate_buffers()}
- 	monitor_buffer = shm_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
+ 	monitor_buffer = vms_monitor_buffer_create(sizeof(STREAM_{arbiter_event_source}_out), {TypeChecker.monitor_buffer_size});
 
  	 // init buffer groups
      printf("-- initializing buffer groups\\n");
@@ -2336,11 +2442,15 @@ int main(int argc, char **argv) {"{"}
      printf("-- creating arbiter thread\\n");
      thrd_create(&ARBITER_THREAD, arbiter, 0);
 
+     // activate buffers
+    {activate_buffers()}
+
      {monitor_code(ast[3], streams_to_events_map, arbiter_event_source)}
 
      printf("-- cleaning up\\n");
      {destroy_all()}
 
+    // BEGIN clean up code
 {get_pure_c_code(components, 'cleanup')}
 {"}"}
 """

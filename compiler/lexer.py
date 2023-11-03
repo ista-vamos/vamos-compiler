@@ -2,6 +2,7 @@ import ply.lex as lex
 
 
 class MyLexer(object):
+
     literals = [
         "[",
         "]",
@@ -35,8 +36,8 @@ class MyLexer(object):
 
     def t_CCODE_end(self, t):
         r"\$\$"
-        assert t.lexer.current_state() == "CCODE"
-        t.lexer.pop_state()  # Enter INITIAL state
+        assert t.lexer.current_state() == "CCODE" 
+        t.lexer.pop_state()  # Enter INITIAL state, we are no longer parsing C Code
         assert t.lexer.current_state() == "INITIAL"
         t.type="CCODE_end"
         return t
@@ -163,19 +164,6 @@ class MyLexer(object):
         t.value=(t.lexer.lexmatch.group("esid4"), idx, t.lexer.lexmatch.group("fname"))
         return t
 
-    # def t_CCODE_STATEMENT_INITIAL(self, t):
-    #     r"\$"
-    #     assert t.lexer.current_state() == "CCODE"
-    #     t.lexer.push_state("INITIAL")  # Enter 'initial' state
-
-    # def t_CCODE_TOKEN(self, t):
-    #     r"[^$]+"
-    #     assert t.lexer.current_state() == "CCODE"
-    #     t.type = "CCODE_TOKEN"
-    #     return t
-
-    # Ignored characters (whitespace)
-    # t_CCODE_ignore = " \t\n"
 
     # For bad characters, we just skip over it
     def t_CCODE_error(self, t):
@@ -185,14 +173,14 @@ class MyLexer(object):
     def t_semicol(self, t):
         r";"
         t.type = ";"
-
         if len(t.lexer.lexstatestack) > 1:
             assert t.lexer.current_state() == "INITIAL"
             # end code statement
-            t.lexer.pop_state()
+            t.lexer.pop_state() # a semicolon means end of C code
             assert t.lexer.current_state() == "CCODE"
         return t
 
+    # regular expressions for literals
     def t_2dots(self, t):
         r"^:$"
         t.type = ":"
@@ -301,6 +289,7 @@ class MyLexer(object):
         t.type="MINUS"
         return t
 
+    # These are reserved words for our language
     reserved = {
         "_" : "_",
         "if": "IF",
@@ -403,8 +392,7 @@ class MyLexer(object):
         "CCODE_SWITCHTO"
     ] + list(reserved.values())
 
-    # Regular expression rules for simple tokens
-
+    # Regular expression rules for tokens
     # A regular expression rule with some action code
     # Note addition of self parameter since we're in a class
     def t_INT(self, t):

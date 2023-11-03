@@ -44,52 +44,50 @@ args = parser.parse_args()
 bufsize = args.bufsize
 
 input_file = args.inputfile  # second argument should be input file
-parsed_args_file = replace_cmd_args(open(input_file).readlines(), bufsize)
-file = " ".join(parsed_args_file)
+parsed_args_file = replace_cmd_args(open(input_file).readlines(), bufsize) # replace @BUFSIZE with the actual size
+file = " ".join(parsed_args_file) # creates a single string
 
 
 # Type checker initialization
 TypeChecker.clean_checker()
-TypeChecker.add_reserved_keywords()
 
 # Parser
 ast = parse_program(file)
-assert ast[0] == "main_program"
-components = dict()
-get_components_dict(ast[1], components)
+if ast is None:
+    print("Parsing the spec failed", file=sys.stderr)
+    exit(1)
 
+assert ast[0] == "main_program", ast
+components = dict()
+get_components_dict(ast[1], components) # split tree into various parts each part will be a value in the components dictionary (e.g stream_type maps to all declarations of stream_types)
+
+# parse components trees
 if "stream_type" in components.keys():
     TypeChecker.get_stream_types_data(components["stream_type"])
+TypeChecker.get_stream_events(components["stream_type"])
 
 if "stream_processor" in components.keys():
     TypeChecker.get_stream_processors_data(components["stream_processor"])
-for event_source in components["event_source"]:
-    TypeChecker.insert_event_source_data(event_source)
-TypeChecker.get_stream_events(components["stream_type"])
+
+TypeChecker.get_event_source_data(components["event_source"])
 
 if "buff_group_def" in components.keys():
-    for buff_group in components["buff_group_def"]:
-        TypeChecker.add_buffer_group_data(buff_group)
+    TypeChecker.get_buffer_group_data(components["buff_group_def"])
 
 if "match_fun_def" in components.keys():
-    for match_fun in components["match_fun_def"]:
-        TypeChecker.add_match_fun_data(match_fun)
+    TypeChecker.get_match_fun_data(components["match_fun_def"])
 
-# TypeChecker.check_arbiter(ast[-2])
-# TypeChecker.check_monitor(ast[-1])
-#
-# Produce C file
 
-#
 streams_to_events_map = get_stream_to_events_mapping(
     components["stream_type"], TypeChecker.stream_processors_data
 )
 
 stream_types: Dict[str, Tuple[str, str]] = get_stream_types(components["event_source"])
-arbiter_event_source = get_arbiter_event_source(ast[2])
-existing_buffers = get_existing_buffers(TypeChecker)
+# END PARSING components data
 
-TypeChecker.arbiter_output_type = arbiter_event_source
+TypeChecker.arbiter_output_type = get_arbiter_output_type(ast[2]) # the arbiter's output type
+
+existing_buffers = get_existing_buffers(TypeChecker)
 
 if args.out is None:
     print("provide the path of the file where the C program must be written.")
@@ -97,6 +95,7 @@ if args.out is None:
 output_path = args.out
 
 if args.with_tessla:
+    # generate a rust file that makes use of Tessla
     if args.dir is None:
         print("ERROR: Must provide the directory path where Tessla files are located")
         exit(1)
@@ -111,7 +110,7 @@ if args.with_tessla:
         ast,
         streams_to_events_map,
         stream_types,
-        arbiter_event_source,
+        TypeChecker.arbiter_output_type,
         existing_buffers,
         args
     )
@@ -120,7 +119,7 @@ if args.with_tessla:
     file.close()
 
     # BEGIN writing rust file
-    program = get_rust_file(streams_to_events_map, arbiter_event_source, None)
+    program = get_rust_file(streams_to_events_map, TypeChecker.arbiter_output_type, None)
     file = open(f"{args.dir}/src/monitor.rs", "r")
     lines = file.readlines()
     file.close()
@@ -149,13 +148,12 @@ if args.with_tessla:
         "DO NOT FORGET to add target/debug/libmonitor.a to the build file of your monitor"
     )
 else:
-
     program = get_c_program(
         components,
         ast,
         streams_to_events_map,
         stream_types,
-        arbiter_event_source,
+        TypeChecker.arbiter_output_type,
         existing_buffers,
         args,
     )

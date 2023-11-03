@@ -1,3 +1,6 @@
+# we need this extra file to make ply work.
+
+# reserved keywords for our language
 reserved = {
     "if": "IF",
     "then": "THEN",
@@ -59,7 +62,6 @@ reserved = {
     "continue": "CONTINUE",
 }
 
-# Token names.
 tokens = [
     # data types
     "BOOL",
