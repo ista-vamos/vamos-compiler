@@ -5,7 +5,7 @@
 #include "compiler_utils.h"
 #include "vamos-buffers/core/shamon.h"
 
-void init_buffer_group(buffer_group *bg) {
+void init_buffer_group(__vamos_buffer_group *bg) {
     //bg = malloc(sizeof(buffer_group));
     bg->size = 0;
     bg->head = NULL;
@@ -210,7 +210,7 @@ void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
 
 }
 
-int advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first)
+int __vamos_advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first)
 {
     dll_node** lsn=nodes+(permsize-1);
     dll_node** pos=lsn;
@@ -247,7 +247,7 @@ int advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first)
     }
     return 0;
 }
-int advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last)
+int __vamos_advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last)
 {
     dll_node** lsn=nodes+(permsize-1);
     dll_node** pos=lsn;
@@ -283,6 +283,16 @@ int advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last)
         return 1;
     }
     return 0;
+}
+
+size_t __vamos_request_from_buffer(__vamos_streaminfo * stream, size_t count, uint64_t current_round)
+{
+    if(stream->status > 0 && stream->size1 + stream->size2 < count && (stream->available >= count || stream->lastround < current_round))
+    {
+        stream->available = vms_arbiter_buffer_peek(stream->buffer, count, &stream->data1, &stream->size1, &stream->data2, &stream->size2);
+        stream->lastround = current_round;
+    }
+    return stream->available;
 }
 
 // int advance_permutation(int* arr, int permsize, int numoptions)

@@ -243,9 +243,9 @@ def p_field_declaration(p):
 
 def p_agg_field_decl(p):
     """
-    aggregate_field_decl : ID '=' agg_expr
+    aggregate_field_decl : type ID '=' agg_expr
     """
-    p[0] = AggFieldDecl(p[1], posInfoFromParser(p), p[3])
+    p[0] = AggFieldDecl(p[2], posInfoFromParser(p), p[1], p[3])
 
 # END event streams
 
@@ -383,7 +383,7 @@ def p_creates_part(p):
     """
     creates_part : CREATES creates_limit ID stream_init_expr TO connection_kind include_spec
     """
-    p[0] = CreatesSpec(posInfoFromParser(p), StreamTypeRef(p[2], posInfoFromParserItem(p,2)), p[3], p[4], p[6], p[7])
+    p[0] = CreatesSpec(posInfoFromParser(p), p[2], StreamTypeRef(p[3], posInfoFromParserItem(p,2)), p[4], p[6], p[7])
     
 
 def p_creates_limit(p):
@@ -459,11 +459,23 @@ def p_dynamic_flag_dynamic(p):
     p[0]=True
 
 
+def p_event_source_size_1(p):
+    """
+    event_source_size : empty
+    """
+    p[0] = 1
+
+def p_event_source_size_n(p):
+    """
+    event_source_size : '[' INT ']'
+    """
+    p[0] = int(p[2])
+
 def p_event_source(p):
     """
-    event_source : dyn_flag EVENT SOURCE ID stream_fields ':' ID stream_init_expr TO connection_kind include_spec
+    event_source : dyn_flag EVENT SOURCE ID event_source_size stream_fields ':' ID stream_init_expr TO connection_kind include_spec
     """
-    p[0] = EventSource(p[4], posInfoFromParser(p), p[1], p[5], StreamTypeRef(p[7], posInfoFromParserItem(p,7)), p[8], p[10], p[11])
+    p[0] = EventSource(p[4], posInfoFromParser(p), p[5], p[1], p[6], StreamTypeRef(p[8], posInfoFromParserItem(p,8)), p[9], p[11], p[12])
 
 
 # def p_event_source_decl(p):
@@ -1055,6 +1067,12 @@ def p_ev_match_shared(p):
     ev_match : SHARED '(' id_list ')'
     """
     p[0]=MatchPatternShared(posInfoFromParser(p), p[3])
+
+def p_ev_match_ignored(p):
+    """
+    ev_match : '_'
+    """
+    p[0]=MatchPatternIgnored(posInfoFromParse(p))
 
 # def p_list_event_calls(p):
 #     """

@@ -302,6 +302,7 @@ class MyLexer(object):
         return t
 
     reserved = {
+        "_" : "_",
         "if": "IF",
         "then": "THEN",
         "else": "ELSE",
