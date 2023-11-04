@@ -230,7 +230,7 @@ if args.legacy_mode is not True:
         output_file.write('LTOFLAGS=""\n')
         output_file.write('CFLAGS="-g -O0"\n\n')
     else:
-        output_file.write('CFLAGS="-g3 -O3 -fPIC -std=c11"\n')
+        output_file.write('CFLAGS="-g3 -O3 -fPIC -std=c11 -Wno-parentheses-equality"\n')
         # output_file.write('LTOFLAGS="-fno-lto -fno-fat-lto-objects"\n')
         output_file.write('CPPFLAGS="$CPPFLAGS -DNDEBUG"\n\n')
 

@@ -228,9 +228,9 @@ def p_agg_field_decl(p):
 
 def p_stream_processor(p):
     """
-    stream_processor : STREAM PROCESSOR ID stream_fields ':' ID opt_expression_list ARROW ID opt_expression_list processor_extends_spec '{' processor_rule_list custom_hole '}'
+    stream_processor : STREAM PROCESSOR ID stream_fields ':' ID opt_expression_list ARROW ID opt_expression_list TO connection_kind processor_extends_spec '{' processor_rule_list custom_hole '}'
     """
-    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], ParameterizedRef(StreamTypeRef(p[6], posInfoFromParserItem(p,6)), p[7], posInfoFromParserItem(p,6).Combine(posInfoFromParserItem(p,7), True)), ParameterizedRef(StreamTypeRef(p[9], posInfoFromParserItem(p,9)), p[10], posInfoFromParserItem(p,9).Combine(posInfoFromParserItem(p,10), True)), p[11], p[13], p[14])
+    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], ParameterizedRef(StreamTypeRef(p[6], posInfoFromParserItem(p,6)), p[7], posInfoFromParserItem(p,6).Combine(posInfoFromParserItem(p,7), True)), ParameterizedRef(StreamTypeRef(p[9], posInfoFromParserItem(p,9)), p[10], posInfoFromParserItem(p,9).Combine(posInfoFromParserItem(p,10), True)), p[13], p[15], p[16], p[12])
 
 def p_processor_extends_spec(p):
     """
@@ -295,19 +295,19 @@ def p_processor_rule(p):
     p[0] = ProcessorRule(posInfoFromParser(p), EventReference(p[2], posInfoFromParserItem(p, 2)), p[3], p[4], p[5])
 
 def p_stream_initialization(p):
-    """stream_init_expr : opt_expression_list
+    """stream_init_expr : opt_expression_list TO connection_kind
                         | PROCESS USING ID opt_expression_list
     """
-    if(len(p)==2):
-        p[0] = DirectStreamInit(posInfoFromParser(p), p[1])
+    if(len(p)==4):
+        p[0] = DirectStreamInit(posInfoFromParser(p), p[1], p[3])
     else:
         p[0] = StreamProcessorInit(posInfoFromParser(p), StreamProcessorRef(p[3], posInfoFromParserItem(p,3)), p[4])
 
 def p_creates_part(p):
     """
-    creates_part : CREATES creates_limit ID stream_init_expr TO connection_kind include_spec
+    creates_part : CREATES creates_limit ID stream_init_expr include_spec
     """
-    p[0] = CreatesSpec(posInfoFromParser(p), p[2], StreamTypeRef(p[3], posInfoFromParserItem(p,2)), p[4], p[6], p[7])
+    p[0] = CreatesSpec(posInfoFromParser(p), p[2], StreamTypeRef(p[3], posInfoFromParserItem(p,2)), p[4], p[5])
     
 
 def p_creates_limit(p):
@@ -383,9 +383,9 @@ def p_event_source_size_n(p):
 
 def p_event_source(p):
     """
-    event_source : dyn_flag EVENT SOURCE ID event_source_size stream_fields ':' ID stream_init_expr TO connection_kind include_spec
+    event_source : dyn_flag EVENT SOURCE ID event_source_size stream_fields ':' ID stream_init_expr include_spec
     """
-    p[0] = EventSource(p[4], posInfoFromParser(p), p[5], p[1], p[6], StreamTypeRef(p[8], posInfoFromParserItem(p,8)), p[9], p[11], p[12])
+    p[0] = EventSource(p[4], posInfoFromParser(p), p[5], p[1], p[6], StreamTypeRef(p[8], posInfoFromParserItem(p,8)), p[9], p[10])
 
 
 def p_connection_kind_autodrop(p):
