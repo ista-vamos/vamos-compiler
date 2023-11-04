@@ -62,7 +62,7 @@ vamos_varidcount=11
 def createid(name):
     global vamos_varidcount
     vamos_varidcount+=1
-    return name+"_"+str(vamos_varidcount)
+    return str(name)+"_"+str(vamos_varidcount)
 
 def varid(name):
     return "__vamos_var_"+createid(name)
@@ -143,6 +143,30 @@ class ASTNode:
     def __init__(self, posInfo):
         self.pos=posInfo
 
+class VamosID(ASTNode):
+    def __init__(self, name, posInfo):
+        self.name=name
+        super().__init__(posInfo)
+    def toBufGroupRef(self):
+        return BufferGroupRef(self.name, self.pos)
+    def toStreamTypeRef(self):
+        return StreamTypeRef(self.name, self.pos)
+    def toStreamProcessorRef(self):
+        return StreamProcessorRef(self.name, self.pos)
+    def toEventRef(self):
+        return EventReference(self.name, self.pos)
+    def toEventSourceRef(self):
+        return EventSourceRef(self.name, self.pos)
+    def toStreamFieldRef(self):
+        return StreamFieldRef(self.name, self.pos)
+    def toFieldRef(self):
+        return FieldRef(self.name, self.pos)
+    def __str__(self):
+        return self.name
+    def toStr(self):
+        return str(self)
+
+
 class VamosSpec:
     def __init__(self, components, arbiter, monitor):
         self.components=components
@@ -153,6 +177,8 @@ class VamosSpec:
     def check(self):
         self.initialize()
         self.initializeMembers()
+        for evsource in self.eventSources.values():
+            evsource.check(self)
 
     def initialize(self):
         self.cglobals=None
@@ -170,11 +196,13 @@ class VamosSpec:
             component.Register(self)
 
     def getEventSource(self, name):
+        name=str(name)
         if name not in self.eventSources:
             return None
         return self.eventSources[name]
     
     def getBufferGroup(self, name):
+        name=str(name)
         if name not in self.bufferGroups:
             return None
         return self.bufferGroups[name]
@@ -183,11 +211,13 @@ class VamosSpec:
         return self.arbiter.streamtype.target
     
     def getStreamType(self, name):
+        name=str(name)
         if name not in self.streamTypes:
             return None
         return self.streamTypes[name]
     
     def getStreamProcessor(self, name):
+        name=str(name)
         if name not in self.streamProcessors:
             return None
         return self.streamProcessors[name]
@@ -239,19 +269,19 @@ struct _EVENT_hole
 typedef struct _EVENT_hole EVENT_hole;
 
 struct _EVENT_hole_wrapper {"{"}
-    shm_event head;
+    vms_event head;
     union {"{"}
         EVENT_hole hole;
     {"}"}cases;
 {"}"};
 
-static void init_hole_hole(shm_event *hev) {"{"}
+static void init_hole_hole(vms_event *hev) {"{"}
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
-    h->head.kind = shm_get_hole_kind();
+    h->head.kind = vms_get_hole_kind();
     h->cases.hole.n = 0;
 {"}"}
 
-static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
+static void update_hole_hole(vms_event *hev, vms_event *ev) {"{"}
     (void)ev;
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
     h->cases.hole.n+=1;
@@ -264,12 +294,22 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
             ret+=f"{streamType.toCPreDecls()}\n"
         for streamProc in self.streamProcessors.values():
             ret+=f"{streamProc.toCPreDecls(self)}"
+        for evsource in self.eventSources.values():
+            ret+=evsource.toCPreDecls(self)
+        for bg in self.bufferGroups.values():
+            ret+=f"{bg.toCPreDecls(self)}"
         for streamType in self.streamTypes.values():
             ret+=f"{streamType.toCDefs()}\n"
         for streamProc in self.streamProcessors.values():
             ret+=f"{streamProc.toCCode(self)}"
+        for evsource in self.eventSources.values():
+            ret+=evsource.toCCode(self)
+        for bg in self.bufferGroups.values():
+            ret+=f"{bg.toCCode(self)}"
         ret+=self.arbiter.toCCode(self)
         ret+=self.monitor.toCCode(self)
+
+        ret+=self.toCMainMethod()
 
         #deduplicate empty lines, and remove them immediately after opening braces and immediately before closing braces
         lines=ret.split("\n")
@@ -289,6 +329,37 @@ static void update_hole_hole(shm_event *hev, shm_event *ev) {"{"}
             ret+=line+"\n"
             lastobrace=line.lstrip().rstrip()=='{'
         return ret
+    
+    def toCMainMethod(self):
+        ret="char namebuf[128];\n"
+        ret+="int main(int argc, char **argv)\n{\n"
+        if self.cstartup is not None:
+            ret+="\n//startup code\n"
+            ret+="@STARTUP@\n"
+
+        for bg in self.bufferGroups.values():
+            ret+="__vamos_init_buffer_group(&"+bg.toCVariable()+", &"+bg.orderfunname+");\n"
+
+        for evsource in self.eventSources.values():
+            ret+=evsource.toCInitCode(self, "namebuf")
+                    
+        ret+="__vamos_monitor_buffer = vms_monitor_buffer_create(sizeof("+self.arbiter.streamtype.target.toEventStructName()+"), "+str(self.monitor.bufsize)+");"
+        ret+="\nthrd_create(&__vamos_thrd_arbiter, arbiter, 0);"
+
+        ret+="\nint returncode = monitor();\n"
+
+        if self.ccleanup is not None:
+            ret+="\n//cleanup code\n"
+            ret+="@CLEANUP@\n"
+        ret+="return returncode;\n"
+        ret+="}\n"
+
+        ret=normalizeGeneratedCCode(ret, 0)
+        if self.cstartup is not None:
+            ret=insertInNormalizedCCode(ret, "@STARTUP@", self.cstartup.toCCode(self))
+        if self.ccleanup is not None:
+            ret=insertInNormalizedCCode(ret, "@CLEANUP@", self.ccleanup.toCCode(self))
+        return normalizeGeneratedCCode(ret, 0)
 
 class ParameterizedRef(ASTNode):
     def __init__(self, ref, args, posInfo):
@@ -447,6 +518,14 @@ struct _{self.toFieldStructName()}
     {self.streamtype.toSharedFieldDef()}{self.toFieldStructName()} fields;
 {"};"}
 """
+    def getField(self, fieldname):
+        if fieldname in self.fields:
+            return self.fields[fieldname]
+        for fld in self.streamtype.sharedflds:
+            if fld.name == fieldname:
+                return fld
+        return None
+
     def toFieldAccess(self, receiver, fieldname):
         if fieldname in self.fields:
             return f"{receiver}->cases.{self.name}.{self.fields[fieldname].toCName()}"
@@ -457,20 +536,29 @@ struct _{self.toFieldStructName()}
         ret=""
         flds = sorted(self.allFields(),key=lambda field: field.index)
         for fld,param in zip(flds,params):
-            ret+=indnt+fld.type.toCCode()+" "+param+" = "+self.toFieldAccess(receiver, fld.name)+";\n"
+            ret+=indnt+fld.type.toCCode()+" "+str(param)+" = "+self.toFieldAccess(receiver, fld.name)+";\n"
         return ret
     
     def toArbiterYieldCCode(self, spec):
         ret=f"inline void __arbiter_yield_{self.name}({', '.join([fld.toPrefixedCCode('__arg_') for fld in sorted(self.allFields(),key=lambda field: field.index)])})\n"
         ret+="{\n"
-        ret+=self.streamtype.toEventStructName()+" * arbiter_outevent = ("+self.streamtype.toEventStructName()+" *)shm_monitor_buffer_write_ptr(__vamos_monitor_buffer);\n"
+        ret+=self.streamtype.toEventStructName()+" * arbiter_outevent = ("+self.streamtype.toEventStructName()+" *)vms_monitor_buffer_write_ptr(__vamos_monitor_buffer);\n"
         ret+="arbiter_outevent->head.kind = "+str(self.index)+";\n"
         ret+="arbiter_outevent->head.id = arbiter_counter++;\n"
         for field in self.allFields():
               ret+=self.toFieldAccess("arbiter_outevent", field.name)+" = __arg_"+field.name+";\n"
-        ret+="shm_monitor_buffer_write_finish(__vamos_monitor_buffer);\n"
+        ret+="vms_monitor_buffer_write_finish(__vamos_monitor_buffer);\n"
         ret+="}\n"
         return normalizeGeneratedCCode(ret, 0)
+    
+    def toEventRegistrationCode(self, env, strmvar):
+        ret="if (vms_stream_register_event((vms_stream *)"+strmvar+", \""+self.name+"\", "+self.toEnumName()+") < 0)\n{\n"
+        ret+='fprintf(stderr, "Failed registering event \\"'+self.name+'\\" for stream type '+self.streamtype.name+'\\n");\n'
+        ret+='fprintf(stderr, "Available events:\\n");\n'
+        ret+="vms_stream_dump_events((vms_stream *)"+strmvar+");\n"
+        ret+="abort();\n"
+        ret+="}\n"
+        return ret
 
 class StreamType(ASTNode):
     def __init__(self, name, posInfo, streamfields, supertype, sharedfields, aggfields, events):
@@ -536,7 +624,7 @@ class StreamType(ASTNode):
         ret=""
         flds = sorted(self.sharedflds,key=lambda field: field.index)
         for fld,param in zip(flds,params):
-            ret+=fld.type.toCCode()+" "+param+" = "+self.toSharedFieldAccess(receiver, fld.name)+";\n"
+            ret+=fld.type.toCCode()+" "+str(param)+" = "+self.toSharedFieldAccess(receiver, fld.name)+";\n"
         return ret
         
     def toSharedFieldAccess(self, receiver, fieldname):
@@ -580,7 +668,7 @@ class StreamType(ASTNode):
         if self.supertype is not None:
             ret+=f"\n{indnt}{self.supertype.toStreamFieldStructName()} __parent;"
         else:
-            ret+=f"\n{indnt}___vamos_streaminfo __info;"
+            ret+=f"\n{indnt}__vamos_streaminfo __info;"
         for field in self.fields.values():
             ret+=f"\n{indnt}{field.toCCode()};"
         ret+=f"""
@@ -662,6 +750,12 @@ class StreamType(ASTNode):
         for fld in self.aggfields:
             ret+=fld.toCInitCode(aggfieldstruct, self, env)
         return ret
+    
+    def toEventRegistrationCode(self, env, strmvar):
+        ret=""
+        for ev in self.events.values():
+            ret+=ev.toEventRegistrationCode(env, strmvar)
+        return ret
 
 class StreamTypeRef(Reference):
     def __init__(self, name, posInfo):
@@ -679,7 +773,51 @@ class CustomHole(ASTNode):
         self.name=name
         self.parts=parts
         super().__init__(posInfo)
-
+    def check(self, streamproc, env):
+        if self.name in streamproc.tostream.target.events:
+            self.event=streamproc.tostream.target.events[self.name]
+            for fld in self.event.allFields():
+                found=False
+                for part in self.parts:
+                    if part.name == fld.name:
+                        found=True
+                        part.type=fld.type
+                        break
+                if not found:
+                    registerError(VamosError([self.pos], f'Hole specification is missing attribute for field "{fld.name}"'))
+            for part in self.parts:
+                found=False
+                for fld in self.event.allFields():
+                    if part.name==fld.name:
+                        found=True
+                        break
+                if not found:
+                    registerError(VamosError([self.pos], f'Hole specification contains attribute for unknown field "{part.name}"'))
+                part.check(streamproc, env)
+        else:
+            registerError(VamosError([self.pos], f"Stream Type \"{streamproc.tostream.target.name}\" does not contain an event named \"{self.name}\""))
+    def toCCode(self, streamproc, env):
+        ret=""
+        ret+="void __vamos_inithole_"+streamproc.name+"(vms_event * holeev)\n{\n"
+        ret+=streamproc.tostream.target.toEventStructName()+" * myholeev = ("+streamproc.tostream.target.toEventStructName()+" *)holeev;\n"
+        for part in self.parts:
+            ret+=part.toInitCCode(self.event, "myholeev")
+        ret+="}\n"
+        ret+="void __vamos_updatehole_"+streamproc.name+"(vms_event * holeev, vms_event * newev)\n{\n"
+        ret+=streamproc.tostream.target.toEventStructName()+" * myholeev = ("+streamproc.tostream.target.toEventStructName()+" *)holeev;\n"
+        ret+=streamproc.fromstream.target.toEventStructName()+" * mynewev = ("+streamproc.fromstream.target.toEventStructName()+" *)newev;\n"
+        for event in streamproc.fromstream.target.events.values():
+            ret+="if(mynewev->head.kind == "+event.toEnumName()+")\n{\n"
+            for part in self.parts:
+                ret+=part.toCCode("myholeev", "mynewev", self.event, event)
+            ret+="}\nelse "
+        ret+="\n{\n"
+        ret+='printf("Unknown event kind received!\\n");\n'
+        ret+="abort();\n"
+        ret+="}\n"
+        ret+="}\n"
+        return ret
+    
 class StreamProcessor(ASTNode):
     def __init__(self, name, posInfo, params, fromStream, toStream, extends, rules, customHole):
         self.name=name
@@ -713,6 +851,12 @@ class StreamProcessor(ASTNode):
         self.initialized=True
         for rule in self.rules:
             rule.initialize(self, Environment(spec))
+        self.initholefunname="__vamos_inithole_FORWARD"
+        self.updateholefunname="__vamos_updatehole_FORWARD"
+        if self.customHole is not None:
+            self.customHole.check(self, Environment(spec))
+            self.initholefunname="__vamos_inithole_"+self.name
+            self.updateholefunname="__vamos_updatehole_"+self.name
         return True
 
     def toThreadFunName(self):
@@ -741,6 +885,8 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
             filtercode+=fcode
             forwardcode+=fwdcode
             ret+=createscode
+        if self.customHole:
+            ret+=self.customHole.toCCode(self, env)
         ret+=f"void {self.toInitFunName()}({', '.join([self.tostream.target.toStreamFieldStructName()+' * nstream']+[fld.toCCode() for fld in self.params])})\n"
         ret+="{\n"
         ret+=self.tostream.target.toCInitCode("nstream", [arg.toCCode(env) for arg in self.tostream.args], env)
@@ -753,8 +899,9 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
         ret+="return true;\n"
         ret+="}\n"
         ret+="}\n"
-        ret+="int "+self.toThreadFunName()+"(__vamos_arbiter_buffer *buffer)\n{\n"
-        ret+="vms_stream *stream = vms_arbiter_buffer_stream(buffer);\n"
+        ret+="int "+self.toThreadFunName()+"("+self.tostream.target.toStreamFieldStructName()+" * __vamos_source)\n{\n"
+        ret+="vms_stream *stream = (vms_stream *)__vamos_source;\n"
+        ret+="vms_arbiter_buffer *buffer = __vamos_source->__info.buffer;\n"
         ret+=self.fromstream.target.toEventStructName()+" *__vamos_inevent;\n"
         ret+=self.tostream.target.toEventStructName()+" *__vamos_outevent;\n"
         ret+="// wait for active buffer\n"
@@ -762,7 +909,7 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
         ret+="sleep_ns(10);\n"
         ret+="}\n"
         ret+="while(true)\n{\n"
-        ret+="__vamos_inevent = stream_filter_fetch(stream, buffer, &"+self.toFilterFunName()+");\n"
+        ret+="__vamos_inevent = vms_stream_filter_fetch(stream, buffer, &"+self.toFilterFunName()+");\n"
         ret+="if (__vamos_inevent == NULL)\n{\n"
         ret+="// no more events\n"
         ret+="break;\n"
@@ -788,15 +935,54 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
 class HoleAttribute(ASTNode):
     def __init__(self, name, posInfo, aggFunc, args):
         self.name=name
-        self.type=type
-        self.aggFunc=aggFunc
+        self.aggfun=aggFunc
         self.args=args
         super().__init__(posInfo)
+    def check(self, streamproc, env):
+        if self.args == "*":
+            if not self.aggfun.name=="COUNT":
+                registerError(VamosError([self.pos], "Invalid aggregation function for arbitrary events: "+self.aggfun.name))
+        else:
+            for arg in self.args:
+                arg.check(self.aggfun, streamproc, env)
+
+    def toCCode(self, target, receiver, holeevent, event):
+        ret=""
+        if str(self.args) == "*":
+            ret+=self.aggfun.toCCode(holeevent.toFieldAccess(target, self.name), None)
+        else:
+            for arg in self.args:
+                ret+=arg.toCCode(self.aggfun, receiver, holeevent.toFieldAccess(target, self.name), event)
+        return ret
+    
+    def toInitCCode(self, holeevent, target):
+        ret=""
+        ret+=self.aggfun.toInitCCode(holeevent.toFieldAccess(target, self.name), self.type)
+        return ret
 
 class AggFunction(ASTNode):
     def __init__(self, name, posInfo):
         self.name=name
         super().__init__(posInfo)
+    def toCCode(self, target, newval):
+        if self.name=="MAX" and newval is not None:
+            return target+" = __vamos_max("+target+", "+newval+");\n"
+        elif self.name=="MIN" and newval is not None:
+            return target+" = __vamos_max("+target+", "+newval+");\n"
+        elif self.name=="COUNT":
+            return target+" = "+target+" + 1;\n"
+        return ""
+    def toInitCCode(self, target, type):
+        ret=""
+        type=str(type)
+        if self.name=="MAX":
+            ret+=target+f" = (({type})-1<({type})0)?sizeof({type})==sizeof(long long)?LLONG_MIN:sizeof({type})==sizeof(long)?LONG_MIN:sizeof({type})==sizeof(int)?INT_MIN:sizeof({type})==sizeof(short)?SHRT_MIN:sizeof({type})==sizeof(signed char)?SCHAR_MIN:0:0;\n"
+        if self.name=="MIN":
+            ret+=target+f" = (({type})-1<({type})0)?sizeof({type})==sizeof(long long)?LLONG_MAX:sizeof({type})==sizeof(long)?LONG_MAX:sizeof({type})==sizeof(int)?INT_MAX:sizeof({type})==sizeof(short)?SHRT_MAX:sizeof({type})==sizeof(signed char)?SCHAR_MAX:0:"
+            ret+=f"sizeof({type})==sizeof(unsigned long long)?ULLONG_MAX:sizeof({type})==sizeof(unsigned long)?ULONG_MAX:sizeof({type})==sizeof(unsigned int)?UINT_MAX:sizeof({type})==sizeof(unsigned short)?USHRT_MAX:sizeof({type})==sizeof(unsigned char):UCHAR_MAX:0;\n"
+        if self.name=="COUNT":
+            ret+=target+" = 0;\n"
+        return ret
 
 class EventReference(Reference):
     def __init__(self, name, posInfo):
@@ -809,10 +995,34 @@ class EventReference(Reference):
         else:
             self.target = streamtype.events[self.name]
 
+class AggEventAccess(ASTNode):
+    def __init__(self, posInfo, event):
+        self.event=event
+        super().__init__(posInfo)
+    def check(self, aggfunc, streamproc, env):
+        self.event.resolve(streamproc.fromstream.target, env)
+        if aggfunc.name not in ["COUNT"]:
+            registerError(VamosError([self.pos], "Invalid aggregation function for event reference: "+aggfunc.name))
+    def toCCode(self, aggfunc, receiver, target, event):
+        ret=""
+        if event==self.event.target:
+            ret += aggfunc.toCCode(target, None)
+        return ret
 
-class AggFieldAccess(Reference):
-    def __init__(self, name, posInfo):
-        super().__init__(name, posInfo)
+class AggFieldAccess(ASTNode):
+    def __init__(self, fieldname, posInfo, eventname):
+        self.field=fieldname.toFieldRef()
+        self.event=eventname.toEventRef()
+        super().__init__( posInfo)
+    def check(self, aggfunc, streamproc, env):
+        self.event.resolve(streamproc.fromstream.target, env)
+        self.field.resolve(self.event.target)
+    def toCCode(self, aggfunc, receiver, target, event):
+        ret=""
+        if event==self.event.target:
+            ret += aggfunc.toCCode(target, self.event.target.toFieldAccess(receiver, self.field.name))
+        return ret
+
 
 class StreamFieldRef(Reference):
     def __init__(self, name, posInfo):
@@ -865,6 +1075,8 @@ class CreatesSpec(ASTNode):
     def check(self, env):
         self.inputtype.resolve(env)
         self.streaminit.check(self.inputtype, env)
+        for incl in self.includein:
+            incl.resolve(env)
     def toCCode(self, env):
         env=Environment(env)
         ret=""
@@ -883,9 +1095,27 @@ class CreatesSpec(ASTNode):
             ret+="}\n"
         strmtype = self.streaminit.streamtype
         ret+=strmtype.target.toStreamFieldStructName()+" * nstream = ("+strmtype.target.toStreamFieldStructName()+"*)malloc(sizeof("+strmtype.target.toStreamFieldStructName()+")+sizeof("+strmtype.target.toAggFieldStructName()+")+sizeof(intptr_t));\n"
+        ret+="if(nstream == 0)\n{\n"
+        ret+='printf("Could not allocate data for newly created stream!\n");\n'
+        ret+="abort();\n"
+        ret+="}\n"
 
-        ret+=self.conkind.toCCode(env)
+        ret+=self.streaminit.toHoleHandlingDef(env)
+        ret+="nstream->__info.stream = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, "+self.streaminit.toHoleHandlingRef()+");\n"
+        ret+="if (!nstream->__info.stream)\n{\n"
+        ret+="fprintf(stderr, \"Failed creating substream for \\\""+env.getCreatesEvent().name+"\\\"\n\");\n"
+        ret+="abort();\n"
+        ret+="}\n"
+
+        ret+=self.conkind.toCCode(env, "nstream", strmtype.target.toEventStructName())
+        #ret+=self.inputtype.target.toEventRegistrationCode(env, "nstream")
         ret+=self.streaminit.toCCode(env, "nstream")
+
+        for incl in self.includein:
+            ret+=incl.target.generateAddCode("nstream")
+        ret+="vms_arbiter_buffer_set_active(nstream->__info.buffer, true);\n"
+        ret+=f"thrd_start(&(((__vamos_streaminfo *)nstream)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)nstream);\n"
+
         ret+="}\n"
         return normalizeGeneratedCCode(ret, 0)
 
@@ -895,9 +1125,22 @@ class DirectStreamInit(ASTNode):
         super().__init__(posInfo)
     def check(self, streamtype, env):
         self.streamtype=streamtype
+        self.holehandlingvar = varid("holehandlingdirect_"+self.streamtype.name)
     def toCCode(self, env, streamvar):
         ret=self.streamtype.target.toCInitCode(streamvar, [arg.toCCode(env) for arg in self.args], env)
         return normalizeGeneratedCCode(ret, 1)
+    def toThreadFunName(self):
+        return ""
+    def toHoleHandlingDef(self, env):
+        ret = "vms_stream_hole_handling "+self.holehandlingvar+" =\n"
+        ret+="{\n"
+        ret+=".hole_event_size = sizeof("+self.streamtype.target.toEventStructName()+"),\n"
+        ret+=".init = &__vamos_inithole_FORWARD,\n"
+        ret+=".update = &__vamos_updatehole_FORWARD\n"
+        ret+="};\n"
+        return ret
+    def toHoleHandlingRef(self):
+        return "&"+self.holehandlingvar
 
 class StreamProcessorInit(ASTNode):
     def __init__(self, posInfo, processor, args):
@@ -905,11 +1148,24 @@ class StreamProcessorInit(ASTNode):
         self.args=args
         super().__init__(posInfo)
     def check(self, streamtype, env):
+        self.holehandlingvar = varid("holehandling_"+self.processor.name)
         self.processor.resolve(env)
         self.streamtype=self.processor.target.tostream
     def toCCode(self, env, streamvar):
         ret=self.processor.target.toInitFunName()+"("+", ".join([streamvar]+[arg.toCCode(env) for arg in self.args])+");"
         return normalizeGeneratedCCode(ret, 1)
+    def toThreadFunName(self):
+        return self.processor.target.toThreadFunName()
+    def toHoleHandlingDef(self, env):
+        ret = "vms_stream_hole_handling "+self.holehandlingvar+" =\n"
+        ret+="{\n"
+        ret+=".hole_event_size = sizeof("+self.streamtype.target.toEventStructName()+"),\n"
+        ret+=".init = &"+self.processor.target.initholefunname+",\n"
+        ret+=".update = &"+self.processor.target.updateholefunname+"\n"
+        ret+="};\n"
+        return ret
+    def toHoleHandlingRef(self):
+        return "&"+self.holehandlingvar
 
 class PerformanceIf(ASTNode):
     def __init__(self, posInfo, condition, thencode, elsecode):
@@ -970,8 +1226,9 @@ class PerformanceForward(ASTNode):
         ret+="memcpy(__vamos_outevent, __vamos_inevent, sizeof("+streamtype.target.toEventStructName()+"));\n"
         ret+="vms_arbiter_buffer_write_finish(buffer);\n"
         if(createsdata is not None):
+            ret+=matchassigns
             matchparams, createsfunname = createsdata
-            ret+=createsfunname+"("+", ".join(["stream"]+matchparams)+");\n"
+            ret+=createsfunname+"("+", ".join(["stream"]+[str(mp) for mp in matchparams])+");\n"
         ret+="break;\n}\n"
         return (caseno, ret)
 
@@ -995,7 +1252,7 @@ class PerformanceForwardConstruct(ASTNode):
         ret+="vms_arbiter_buffer_write_finish(buffer);\n"
         if(createsdata is not None):
             matchparams, createsfunname = createsdata
-            ret+=createsfunname+"("+", ".join(["stream"]+matchparams)+");"
+            ret+=createsfunname+"("+", ".join(["stream"]+[str(mp) for mp in matchparams])+");"
         ret+="break;\n}\n"
         return (caseno, ret)
 
@@ -1020,21 +1277,68 @@ class EventSource(ASTNode):
     def check(self, spec):
         self.inputtype.resolve(spec)
         self.streaminit.check(self, spec)
+        for incl in self.includedin:
+            incl.resolve(spec)
     def toCVar(self):
         return self.cVar
-    def toCPreDecl(self, spec):
+    def toCPreDecls(self, spec):
         ret=""
         if not self.isDynamic:
             self.cVar = varid("evsource")
             ret=self.streaminit.streamtype.target.toStreamFieldStructName()
+            ret+=" "+self.cVar
             if self.size > 1:
                 ret+="["+str(self.size)+"]"
-            ret+=" "+self.cvar+";\n"
+            ret+=";\n"
         return ret
+    def toInitFunName(self):
+        return "__vamos_evsrcinit_"+self.name
     def toCCode(self, spec):
-        return ""
-    def toCInitCode(self, spec):
-        return ""
+        env=Environment(spec)
+        ret="void "+self.toInitFunName()+"("+self.streaminit.streamtype.target.toStreamFieldStructName()+" * __vamos_evsdata, int64_t __vamos_index, int argc, char ** argv)\n{\n"
+        ret+=self.conkind.toBufferInitCode("__vamos_evsdata", self.streaminit)
+        ret+=self.streaminit.toCCode(env, "__vamos_evsdata")
+        ret+=self.inputtype.target.toEventRegistrationCode(env, "__vamos_evsdata")
+        for incl in self.includedin:
+            ret+=incl.target.generateAddCode("__vamos_evsdata")
+            for bg in spec.bufferGroups.values():
+                for incl in bg.includes:
+                    ret+=incl.generateIncludeCode(bg, self, "__vamos_evsdata", "__vamos_index")
+        ret+="vms_arbiter_buffer_set_active(__vamos_evsdata->buffer, true);\n"
+        ret+=f"thrd_start(&(((__vamos_streaminfo *)__vamos_evsdata)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)__vamos_evsdata);\n"
+        ret+="}\n"
+        return normalizeGeneratedCCode(ret, 0)
+    def toCInitCode(self, spec, strbufname):
+        ret=self.streaminit.toHoleHandlingDef(spec)
+        if self.isDynamic:
+            countervar=varid("dynevcnt")
+            strmvar=varid("strm")
+            sfsvar=varid("sfs")
+            ret+="int64_t "+countervar+" = 1;\n"
+            ret+="while(true)\n{\n"
+            ret+="snprintf("+strbufname+", 128, \"\%s\%z\", \""+self.name+"\", "+countervar+");\n"
+            ret+="vms_stream * "+strmvar+" = vms_stream_create_from_argv("+strbufname+", argc, argv, "+self.streaminit.toHoleHandlingRef()+");\n"
+            ret+="if("+strmvar+" == 0)\n{\n"
+            ret+="break;\n"
+            ret+="}\n"
+            ret+=self.streaminit.streamtype.target.toStreamFieldStructName()+" * "+sfsvar+" = ("+self.streaminit.streamtype.target.toStreamFieldStructName()+"*)malloc(sizeof("+self.streaminit.streamtype.target.toStreamFieldStructName()+"));\n"
+            ret+="if("+sfsvar+"==0)\n{\n"
+            ret+='printf("Could not allocate dynamic event source data!\\n");\n'
+            ret+="abort();"
+            ret+="}\n"
+            ret+=self.countervar+"++;\n"
+            ret+=sfsvar+"->__info.stream = "+strmvar+";\n"
+            ret+=self.toInitFunName()+"("+sfsvar+", "+countervar+", argc, argv);\n"
+            ret+="}\n"
+        else:
+            if self.size > 1:
+                for i in range(0,self.size):
+                    ret+=self.toCVar()+"["+str(i)+"].__info.stream = vms_stream_create_from_argv(\""+self.name+str(i+1)+"\", argc, argv, "+self.streaminit.toHoleHandlingRef()+");\n"
+                    ret+=self.toInitFunName()+"(&"+self.toCVar()+"["+str(i)+"], "+str(i+1)+", argc, argv);\n"
+            else:
+                ret+=self.toCVar()+".__info.stream = vms_stream_create_from_argv(\""+self.name+"\", argc, argv, "+self.streaminit.toHoleHandlingRef()+");\n"
+                ret+=self.toInitFunName()+"(&"+self.toCVar()+", 0, argc, argv);\n"
+        return ret
 
 class StreamProcessorRef(Reference):
     def __init__(self, name, posInfo):
@@ -1077,21 +1381,16 @@ class AutoDropBufferKind(ASTNode):
         self.size=size
         self.minFree=minFree
         super().__init__(posInfo)
-    def toCCode(self, env): #, eventName, eventStructName, initHoleFun, updateHoleFun):
+    def toCCode(self, env, var, eventStructName): #, eventName, eventStructName, initHoleFun, updateHoleFun):
         ret=""
-        # ret+="vms_stream_holehandling hole_handling = {\n"
-        # ret+=".hole_event_size = sizeof("+eventStructName+"),\n"
-        # ret+=".init = &"+initHoleFun+",\n"
-        # ret+=".update = &"+updateHoleFun+"\n"
-        # ret+="};\n"
-        # ret+="vms_stream * ev_source_temp = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, &hole_handling);\n"
-        # ret+="if (!ev_source_temp)\n{\n"
-        # ret+="fprintf(stderr, \"Failed creating substream for \\\""+eventName+"\\\"\n\");\n"
-        # ret+="abort();\n"
-        # ret+="}\n"
-        # ret+="vms_arbiter_buffer *temp_buffer = shm_arbiter_buffer_create(ev_source_temp,  sizeof("+eventStructName+"), "+str(self.size)+");\n"
-        # ret+="vms_arbiter_buffer_set_drop_space_threshold(temp_buffer, "+str(self.minFree)+");\n"
-        # ret+="vms_stream_register_all_events(ev_source_temp);\n"
+        ret+=var+"->__info.buffer = vms_arbiter_buffer_create("+var+"->__info.stream,  sizeof("+eventStructName+"), "+str(self.size)+");\n"
+        ret+="vms_arbiter_buffer_set_drop_space_threshold("+var+"->__info.buffer, "+str(self.minFree)+");\n"
+        ret+="vms_stream_register_all_events("+var+"->__info.stream);\n"
+        return ret
+    def toBufferInitCode(self, var, streamproc):
+        ret=""
+        ret+=var+"->__info.buffer = vms_arbiter_buffer_create("+var+"->__info.stream,  sizeof("+streamproc.streamtype.target.toEventStructName()+"), "+str(self.size)+");\n"
+        ret+="vms_arbiter_buffer_set_drop_space_threshold("+var+"->__info.buffer, "+str(self.minFree)+");\n"
         return ret
 
 
@@ -1102,11 +1401,17 @@ class BlockingBufferKind(ASTNode):
     def toCCode(env):
         print("Blocking buffers not implemented!\n")
         exit()
+    def toBufferInitCode(self, var, streamproc):
+        print("Blocking buffers not implemented!\n")
+        exit()
 
 class InfiniteBufferKind(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
     def toCCode(env):
+        print("Infinite buffers not implemented!\n")
+        exit()
+    def toBufferInitCode(self, var, streamproc):
         print("Infinite buffers not implemented!\n")
         exit()
 
@@ -1119,7 +1424,13 @@ class BufferGroup(ASTNode):
         super().__init__(posInfo)
     def initialize(self, spec):
         self.streamtype.resolve(spec)
+        env=Environment(spec)
+        for ord in self.order:
+            ord.initialize(self.streamtype, env)
+        for incl in self.includes:
+            incl.resolve(env)
     def Register(self, spec):
+        self.orderfunname=funid("bg_order_"+self.name)
         if self.name in spec.bufferGroups:
             registerError(VamosError([self.pos, spec.bufferGroups[self.name].pos], f"Multiple definitions for Buffer Group \"{self.name}\""))
         elif self.name in spec.eventSources:
@@ -1132,16 +1443,70 @@ class BufferGroup(ASTNode):
 
     def readsize(self):
         return self.toCVariable()+".size"
+    
+    def toCPreDecls(self, spec):
+        ret="__vamos_buffer_group "+self.toCVariable()+";\n"
+        ret+="int "+self.orderfunname+"(__vamos_buffer_group * bg, __vamos_bg_list_node * node1, __vamos_bg_list_node * node2);"
+        return normalizeGeneratedCCode(ret,0)
+    
+    def toCCode(self, spec):
+        ret=""
+        env=Environment(spec)
+        ret+="int "+self.orderfunname+"(__vamos_buffer_group * bg, __vamos_bg_list_node * node1, __vamos_bg_list_node * node2)\n{\n"
+        ret+=self.streamtype.target.toStreamFieldStructName()+" * stream1 = ("+self.streamtype.target.toStreamFieldStructName()+" *)node1->stream;\n"
+        ret+=self.streamtype.target.toStreamFieldStructName()+" * stream2 = ("+self.streamtype.target.toStreamFieldStructName()+" *)node2->stream;\n"
+        for ord in self.order:
+            ret+=ord.toCCode(env)
+        ret+="return 0;\n"
+        ret+="}\n"
+        return normalizeGeneratedCCode(ret,0)
+        
+    def generateAddCode(self, streamvar):
+        return "__vamos_bg_add(&"+self.toCVariable()+", (__vamos_streaminfo *)"+streamvar+");\n"
+
 
 
 class RoundRobinOrder(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
+    def initialize(self, streamtype, env):
+        pass
+    def toCCode(self, env):
+        ret="if(node1->id != node2->id)\n{\n"
+        ret+="if(node1->id < node2->id)\n{\n"
+        ret+="if(node2->id <= bg->lastfirst || bg->lastfirst < node1->id)\n{\n"
+        ret+="return -1;\n"
+        ret+="}\n"
+        ret+="return 1;\n"
+        ret+="}\n"
+        ret+="if(node1->id <= bg->lastfirst || bg->lastfirst < node2->id)\n{\n"
+        ret+="return 1;\n"
+        ret+="}\n"
+        ret+="return -1;\n"
+        ret+="}\n"
+        ret+="}\n"
+        return ret
 
 class StreamFieldOrder(ASTNode):
     def __init__(self, posInfo, field):
         self.field=field
         super().__init__(posInfo)
+    def initialize(self, streamtype, env):
+        self.field.resolve(streamtype)
+        self.streamtype=streamtype
+    def toCCode(self, env):
+        var1=varid("strmfield1")
+        var2=varid("strmfield2")
+        ret=""
+        ret+=self.field.target.type.toCCode()+" "+var1+" = "+self.streamtype.target.toCFieldAccess(self.field, "stream1")+";\n"
+        ret+=self.field.target.type.toCCode()+" "+var2+" = "+self.streamtype.target.toCFieldAccess(self.field, "stream2")+";\n"
+        ret+="if("+var1+" != "+var2+")\n{\n"
+        ret+="if("+var1+" < "+var2+")\n{\n"
+        ret+="return -1;\n"
+        ret+="}\n"
+        ret+="return 1;\n"
+        ret+="}\n"
+        return ret
 
 class SharedElemOrder(ASTNode):
     def __init__(self, posInfo, aggexp, missingspec):
@@ -1232,11 +1597,28 @@ class BGroupIncludeAll(ASTNode):
     def __init__(self, posInfo, evsource):
         self.eventsource=evsource
         super().__init__(posInfo)
+    def initialize(self, env):
+        self.eventsource.resolve(env)
+    def generateIncludeCode(self, bg, evsource, streamvar, indexvar):
+        if(evsource==self.eventsource.target):
+            return bg.generateAddCode(streamvar)
+        else:
+            return ""
 
 class BGroupIncludeIndex(ASTNode):
     def __init__(self, posInfo, evsource):
         self.eventsource=evsource
         super().__init__(posInfo)
+    def initialize(self, env):
+        self.eventsource.resolve(env)
+    def generateIncludeCode(self, bg, evsource, streamvar, indexvar):
+        if(evsource==self.eventsource.target):
+            ret="if("+indexvar+" == "+str(self.eventsource.index)+")\n{\n"
+            ret+=bg.generateAddCode(streamvar)
+            ret+="}\n"
+            return ret
+        else:
+            return ""
 
 class EventSourceIndexedRef(Reference):
     def __init__(self, name, posInfo, idx):
@@ -1282,6 +1664,7 @@ class Arbiter(ASTNode):
     
     def toCCode(self, spec):
         ret="uint64_t arbiter_counter = 10;\n"
+        ret+="thrd_t __vamos_thrd_arbiter;\n"
         ret+="vms_monitor_buffer *__vamos_monitor_buffer;\n"
         for event in self.streamtype.target.events.values():
             ret+=event.toArbiterYieldCCode(spec)
@@ -1293,16 +1676,20 @@ class Arbiter(ASTNode):
         baseindent=' '*INDENT
         indnt=baseindent
         ret+=indnt+"int all_done=0;\n"
+        ret+=indnt+"int __vamos_matched = 0;\n"
         ret+=indnt+"uint64_t __vamos_roundid=1;\n"
         ret+=indnt+"while(!all_done)\n"+indnt+"{\n"
         indnt+=baseindent
+        for bg in spec.bufferGroups.values():
+            ret+=indnt+"__vamos_bg_process_updates(&"+bg.toCVariable()+");\n"
+            ret+=indnt+"__vamos_bg_process_inserts(&"+bg.toCVariable()+");\n"
         if len(self.rulesets)>1:
             ret+=indnt+"switch(__vamos_current_arbiter_ruleset)\n"+indnt+"{\n"
             indnt+=baseindent
             for ruleset in self.rulesets:
                 ret+=indnt+"case "+ruleset.toCEnumValue()+":\n"
                 ret+=indnt+"{\n"
-                ret+=indnt+ruleset.toCallCCode("__vamos_roundid++")+";\n"
+                ret+=indnt+"__vamos_matched = "+ruleset.toCallCCode("__vamos_roundid++")+";\n"
                 ret+=indnt+baseindent+"break;\n"
                 ret+=indnt+"}\n"
             indnt=baseindent*2
@@ -1311,7 +1698,7 @@ class Arbiter(ASTNode):
             ret+=indnt+self.rulesets[0].toCallCCode("__vamos_roundid++")+";\n"
         indnt=' '*INDENT
         ret+=indnt+"}\n"
-        ret+=indnt+"shm_monitor_set_finished(monitor_buffer);\n"
+        ret+=indnt+"vms_monitor_set_finished(monitor_buffer);\n"
         ret+=indnt+"return 0;\n"
         ret+="}\n"
         return ret
@@ -1468,13 +1855,13 @@ class ChooseSources(ASTNode):
             ret = f"int {anyleftvar} = {group.target.readsize()}>={len(vars)};\n"
             ret +=f"if({anyleftvar})\n{'{'}\n"
             itervar=varid("source_iter")
-            ret+=group.target.streamtype.target.toReferenceType()+" "+itervar+" = "+self.getInitialSource(group)+";\n"
-            ret+=(itervar+" = "+self.getNextSource(itervar)+";\n").join([env.getEventSource(var).varid+" = "+itervar+";\n" for var in vars])
+            ret+="__vamos_bg_list_node * "+itervar+" = "+self.getInitialSource(group)+";\n"
+            ret+=(itervar+" = "+self.getNextSource(itervar)+";\n").join([env.getEventSource(var).varid+" = ("+group.target.streamtype.target.toReferenceType()+")"+itervar+"->stream;\n" for var in vars])
             permvar=""
             if(self.n!=1):
                 if(len(vars)>1):
                     permvar = varid("permutations")
-                    ret += f"dll_node* {permvar}[] = "+"{"+", ".join([env.getEventSource(var).varid for var in vars])+"};\n"
+                    ret += f"__vamos_bg_list_node* {permvar}[] = "+"{"+", ".join([env.getEventSource(var).varid for var in vars])+"};\n"
                 cyclecountcond=""
                 if self.n > 1:
                     cyclecountvar = varid("cycle_count")
@@ -1580,12 +1967,12 @@ class MonitorRule(ASTNode):
             ret+=f"{indnt}{baseindent}if({self.condition.toCCode(spec)})\n"
             ret+=indnt+baseindent+"{\n"
             ret+=normalizeCCode(self.code.toCCode(spec), indnt+(baseindent*2))
-            ret+="\n"+indnt+(baseindent*2)+"shm_monitor_buffer_consume(__vamos_monitor_buffer, 1);"
+            ret+="\n"+indnt+(baseindent*2)+"vms_monitor_buffer_consume(__vamos_monitor_buffer, 1);"
             ret+="\n"+indnt+(baseindent*2)+"continue;\n"
             ret+=indnt+baseindent+"}\n"
         else:
             ret+=normalizeCCode(self.code.toCCode(spec), indnt+baseindent)
-            ret+="\n"+indnt+baseindent+"shm_monitor_buffer_consume(__vamos_monitor_buffer, 1);"
+            ret+="\n"+indnt+baseindent+"vms_monitor_buffer_consume(__vamos_monitor_buffer, 1);"
             ret+="\n"+indnt+baseindent+"continue;\n"
         ret+=indnt+"}\n"
         return ret
@@ -1914,7 +2301,14 @@ class ExprUnOp(CCodeEscape):
     def toCCode(self, env):
         return "("+self.op+parenthesize(self.rand.toCCode(env))+")"
 
-
+class FieldAccess(ASTNode):
+    def __init__(self, posInfo, evsource, fieldname):
+        self.field=fieldname.toStreamFieldRef()
+        self.evsource=evsource
+        super().__init__(posInfo)
+    def check(self, env):
+        self.evsource.resolve(env)
+        self.field.resolve(self.evsource.streaminit.streamtype.target)
 
 class TypeNamed(ASTNode):
     def __init__(self, posInfo, name):
@@ -1955,6 +2349,14 @@ class TypeArray(ASTNode):
     def __str__(self):
         return self.toCCode()
 
+class FieldRef(Reference):
+    def __init__(self, name, posInfo):
+        super().__init__(name, posInfo)
+    def resolve(self, event):
+        self.target = event.getField(self.name)
+        if self.target is None:
+            registerError(VamosError([self.pos], f'Unknown field "{self.name}" for event "{event.name}"'))
+
 class EventSourceVar:
     def __init__(self, name, streamtype, varid):
         self.name=name
@@ -1974,13 +2376,14 @@ class Environment:
         self.createsEvent=None
 
     def addEventSourceVar(self, depth, group, var, newvarid):
-        self.eventSourceVars[var]=EventSourceVar(var, group.target.streamtype, newvarid)
+        self.eventSourceVars[str(var)]=EventSourceVar(str(var), group.target.streamtype, newvarid)
         return f"{' '*INDENT*depth}{group.target.streamtype.target.toReferenceType()} {newvarid};\n"
     
     def getBufferGroup(self, name):
         return self.parent.getBufferGroup(name)
 
     def getEventSource(self, name):
+        name=str(name)
         if name in self.eventSourceVars:
             return self.eventSourceVars[name]
         return self.parent.getEventSource(name)

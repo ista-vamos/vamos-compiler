@@ -5,215 +5,314 @@
 #include "compiler_utils.h"
 #include "vamos-buffers/core/shamon.h"
 
-void init_buffer_group(__vamos_buffer_group *bg) {
-    //bg = malloc(sizeof(buffer_group));
-    bg->size = 0;
-    bg->head = NULL;
-    bg->tail = NULL;
-    bg->was_used = 0;
+
+void __vamos_init_buffer_group(__vamos_buffer_group *bg, int (*order)(__vamos_buffer_group * bg, __vamos_bg_list_node *stream1, __vamos_bg_list_node *stream2))
+{
+    bg->head=0;
+    bg->idcounter=1;
+    bg->inserted=0;
+    bg->lastfirst=0;
+    bg->order=order;
+    bg->size=0;
+    bg->updated=0;
+    mtx_init(&bg->insert_lock, mtx_plain);
 }
 
-void destroy_buffer_group(buffer_group *bg) {
-    dll_node * curr = bg->head;
-    dll_node *next;
-     while (curr != NULL) {
-        next = curr->next;
-        free(curr);
-        curr = next;
-     }
-    //free(bg);
+void __vamos_bg_insert(__vamos_buffer_group *bg, __vamos_streaminfo *stream)
+{
+    __vamos_bg_list_node* node=(__vamos_bg_list_node*)malloc(sizeof(__vamos_bg_list_node));
+    if(node==0)
+    {
+        printf("Could not allocate buffer group member list node!");
+        abort();
+    }
+    node->group=bg;
+    node->stream=stream;
+    node->id=bg->idcounter++;
+    node->insert_next=0;
+    node->member_next=0;
+    node->member_prev=0;
+    node->next=0;
+    node->prev=0;
+    node->update_next=0;
+    node->update_prev=0;
+    int done=0;
+    __vamos_bg_list_node * volatile * insert_pos = &bg->inserted;
+    mtx_lock(&bg->insert_lock);
+    __vamos_bg_list_node * insert=*insert_pos;
+    while(insert!=0)
+    {
+        insert_pos=&insert->insert_next;
+        insert=*insert_pos;
+    }
+    *insert_pos=node;
+    mtx_unlock(&bg->insert_lock);
 }
-
-void bg_insert(buffer_group *bg, vms_stream *stream, void* buffer, void *args, bool (*order_exp)(void *args1, void *args2)) {
-    dll_node *new_node =  (dll_node *) malloc(sizeof(dll_node));
-    new_node->stream = stream;
-    new_node->buffer = buffer;
-    new_node->args = args;
-    new_node->next = NULL;
-    new_node->prev = NULL;
-    new_node->was_used = 0;
-    if(bg->size == 0) {
-        bg->head = new_node;
-        bg->tail = new_node;
-    } else {
-        // check if it goes on the tail
-        if (bg->tail->stream == stream) return;
-        if (bg->head->stream == stream) return;
-        if (order_exp(new_node->args, bg->tail->args)) {
-            bg->tail->next = new_node;
-            new_node->next = NULL;
-            new_node->prev = bg->tail;
-            bg->tail = new_node;            
-        }
-        // check if it goes on head
-        
-        else if(!order_exp(args, bg->head->args)) {
-            new_node->next = bg->head;
-            new_node->prev = NULL;
-            bg->head->prev = new_node;
-            bg->head = new_node;
-        }else {
-            // new node goes somewhere in the middle
-            dll_node *curr = bg->head;
-            while (order_exp(new_node->args, curr->args)) {
-                // curr should never be NULL at this point
-                curr = curr->next;
+void __vamos_bg_process_inserts(__vamos_buffer_group *bg)
+{
+    __vamos_bg_list_node * volatile * insert_pos = &bg->inserted;
+    mtx_lock(&bg->insert_lock);
+    __vamos_bg_list_node * insert=*insert_pos;
+    while(insert!=0)
+    {
+        __vamos_bg_insert_node(bg, insert);
+        insert_pos=&insert->insert_next;
+        insert=*insert_pos;
+    }
+    bg->inserted=0;
+    mtx_unlock(&bg->insert_lock);
+}
+void __vamos_bg_process_updates(__vamos_buffer_group *bg)
+{
+    if(bg->updated!=0)
+    {
+        __vamos_bg_list_node * cur=bg->updated;
+        __vamos_bg_list_node * final = cur->prev;
+        __vamos_bg_list_node * lastcur=0;
+        do
+        {
+            __vamos_bg_adjust_pos(bg, cur);
+            lastcur=cur;
+            cur=cur->update_next;
+            if(!lastcur->stream->needed_aggfields)
+            {
+                lastcur->update_next->update_prev=lastcur->update_prev;
+                lastcur->update_prev->update_next=lastcur->update_next;
+                if(bg->updated==lastcur)
+                {
+                    if(lastcur->update_next==lastcur)
+                    {
+                        bg->updated=0;
+                    }
+                    else
+                    {
+                        bg->updated=lastcur->update_next;
+                    }
+                }
             }
+        } while (lastcur!=final);
+    }
+}
+bool __vamos_bg_add(__vamos_buffer_group *bg, __vamos_streaminfo *stream)
+{
+    if(stream->memberships!=0)
+    {
+        __vamos_bg_list_node* cur=stream->memberships;
+        do
+        {
+            if(cur->group==bg)
+            {
+                return false;
+            }
+            cur=cur->member_next;
+        } while (cur!=stream->memberships);
+        
+    }
+    __vamos_bg_list_node* node=(__vamos_bg_list_node*)malloc(sizeof(__vamos_bg_list_node));
+    if(node==0)
+    {
+        printf("Could not allocate buffer group member list node!");
+        abort();
+    }
+    node->group=bg;
+    node->stream=stream;
+    node->id=bg->idcounter++;
+    node->insert_next=0;
+    node->member_next=0;
+    node->member_prev=0;
+    node->next=0;
+    node->prev=0;
+    node->update_next=0;
+    node->update_prev=0;
+    return __vamos_bg_insert_node(bg, node);
+}
+bool __vamos_bg_insert_node(__vamos_buffer_group *bg, __vamos_bg_list_node * node)
+{
+    if(bg->head==0)
+    {
+        bg->head=node;
+        node->next=node;
+        node->prev=node;
+    }
+    else
+    {
+        node->next=bg->head;
+        node->prev=bg->head->prev;
+        node->next->prev=node;
+        node->prev->next=node;
+        __vamos_bg_adjust_pos(bg, node);
+    }
+    if(node->stream->memberships==0)
+    {
+        node->stream->memberships=node;
+        node->member_next=node;
+        node->member_prev=node;
+    }
+    else
+    {
+        node->member_next=node->stream->memberships;
+        node->member_prev=node->stream->memberships->member_prev;
+        node->member_next->member_prev=node;
+        node->member_prev->member_next=node;
+    }
+    return true;
+}
+bool __vamos_bg_adjust_pos(__vamos_buffer_group *bg, __vamos_bg_list_node * node)
+{
+    __vamos_bg_list_node * curcomp=node->prev;
+    int swap=false;
+    int direction=0;
+    while(true)
+    {
+        while(curcomp->update_next!=0&&curcomp!=node&&curcomp!=bg->head)
+        {
+            curcomp=curcomp->prev;
+        }
+        if(order(node, curcomp)<0)
+        {
+            swap=true;
+            if(curcomp==bg->head)
+            {
+                break;
+            }
+        }
+        curcomp=node->prev;
+    }
+    if(swap)
+    {
+        node->prev->next=node->next;
+        node->next->prev=node->prev;
 
-            dll_node *prev_node = curr->prev;
-            if(curr->stream == stream || prev_node->stream == stream) return;
-            new_node->prev = prev_node;
-            new_node->next = curr;
+        node->prev=curcomp->prev;
+        node->prev->next=node;
+        curcomp->prev=node;
+        node->next=curcomp;
 
-            prev_node->next = new_node;
-            curr->prev = new_node;
+        if(curcomp==bg->head)
+        {
+            bg->head=node;
         }
     }
+    else
+    {
+        curcomp=bg->head->prev;
+        while(true)
+        {
+            while(curcomp->update_next!=0&&curcomp!=node)
+            {
+                curcomp=curcomp->prev;
+            }
+            if(curcomp==node)
+            {
+                break;
+            }
+            if(order(curcomp, node)<0)
+            {
+                node->prev->next=node->next;
+                node->next->prev=node->prev;
 
-    bg->size +=1;
+                node->next=curcomp->next;
+                node->next->prev=node;
+                curcomp->next=node;
+                node->prev=curcomp;
+                break;
+            }
+            curcomp=node->prev;
+        }
+    }
+    return true;
 }
-
-
-bool bg_remove(buffer_group *bg, vms_stream *stream) {
-    // returns true only when the element was found and therefore, removed.
-    dll_node * curr = bg->head;
-
-    while(curr != NULL) {
-        if (curr->stream == stream) {
-            dll_node *after_curr = curr->next;
-            dll_node *before_curr = curr->prev;
-            if(before_curr != NULL){
-                before_curr->next = after_curr;
+bool __vamos_bg_remove(__vamos_buffer_group *bg, __vamos_streaminfo *stream)
+{
+    if(stream->memberships!=0)
+    {
+        __vamos_bg_list_node* cur=stream->memberships;
+        do
+        {
+            if(cur->group==bg)
+            {
+                if(stream->memberships==cur)
+                {
+                    if(cur->member_next==cur)
+                    {
+                        stream->memberships=0;
+                    }
+                    else
+                    {
+                        stream->memberships=cur->member_next;
+                    }
+                }
+                if(bg->head==cur)
+                {
+                    if(cur->next==cur)
+                    {
+                        bg->head=0;
+                    }
+                    else
+                    {
+                        bg->head=cur->next;
+                    }
+                }
+                if(bg->updated==cur)
+                {
+                    if(cur->update_next==cur)
+                    {
+                        bg->updated=0;
+                    }
+                    else
+                    {
+                        bg->updated=cur->update_next;
+                    }
+                }
+                cur->next->prev=cur->prev;
+                cur->prev->next=cur->next;
+                if(cur->update_next!=0)
+                {
+                    cur->update_next->update_prev=cur->update_prev;
+                    cur->update_prev->update_next=cur->update_next;
+                }
+                free(cur);
+                return true;
             }
-            
-            if(after_curr != NULL){
-                after_curr->prev = before_curr;
-            }
-            if(curr == bg->head) {
-                bg->head = after_curr;
-            }
-            if(curr == bg->tail) {
-                bg->tail = before_curr;
-            }
-            free(curr);
-            bg->size -=1;
-            return true;
-        } 
-        curr = curr->next;
+            cur=cur->member_next;
+        } while (cur!=stream->memberships);
+        
     }
     return false;
-
 }
-
-void bg_remove_first_n(buffer_group *bg, int n) {
-    dll_node * curr = bg->head;
-    dll_node * next;
-    while(n > 0 && bg->size > 0) {
-        next = curr->next;
-        bg_remove(bg, curr->stream);
-        n--;
-        curr = next;
-    }
-}
-
-void bg_remove_last_n(buffer_group *bg, int n) {
-    dll_node * curr = bg->tail;
-    dll_node * next;
-    while(n > 0 && bg->size > 0) {
-        next = curr->prev;
-        bg_remove(bg, curr->stream);
-        n--;
-        curr = next;
-    }
-}
-
-bool bg_get_first_n(buffer_group *bg, int at_least, dll_node ***result) {
-    if (bg->size < at_least) {
-        return false;
-    }
-    dll_node * curr = bg->head;
-    for (int i = 0; curr!=NULL; i++){
-        (*result)[i] = curr;
-        curr = curr->next;
-    }
-    return true;
-}
-
-bool bg_get_last_n(buffer_group *bg, int at_least, dll_node ***result) {
-    if (bg->size < at_least) {
-        return false;
-    }
-    dll_node * curr = bg->tail;
-    for (int i = 0; curr!=NULL; i++){
-        (*result)[i] = curr;
-        curr = curr->prev;
-    }
-    return true;
-}
-
-void swap_dll_node(dll_node *node1, dll_node *node2) {
-    dll_node * node1_prev = node1->prev;
-    dll_node * node1_next = node1->next;
-
-    dll_node *node2_prev = node2->prev;
-    dll_node *node2_next = node2->next;
-    if (node1_prev){
-        node1_prev->next = node2;
-    }
-
-    assert(node1_next == node2);
-    node1->prev = node2;
-    node1->next = node2_next;
-
-    assert(node2_prev == node1);
-    node2->prev = node1_prev;
-    node2->next = node1;
-    if(node2_next){
-        node2_next->prev = node1;
-    }
-    
-
-}
-
-void bg_update(buffer_group *bg, bool (*order_exp)(void *args1, void *args2)) {
-
-    bool change = true;
-
-    while(change) {
-        dll_node *prev = bg->head;
-        dll_node * current;
-        dll_node * temp_after;
-        change = false;
-        while(prev && prev->next){
-            current = prev->next;
-            // at this point prev and current are NOT NULL
-            if(order_exp(prev->args, current->args)){
-                if(prev == bg->head){
-                    bg->head = current;
-                }
-                if(current == bg->tail){
-                    bg->tail = prev;
-                }
-                change = true;
-                
-
-                swap_dll_node(prev, current);
-                prev = prev->next;
-            } else {
-                prev = current;
-            }
-
-        }
-
-
-    }
-
-}
-
-int __vamos_advance_permutation_forward(dll_node** nodes, int permsize, dll_node* first)
+void __vamos_stream_mark_for_update(__vamos_streaminfo * stream)
 {
-    dll_node** lsn=nodes+(permsize-1);
-    dll_node** pos=lsn;
+    if(stream->memberships==0)
+    {
+        return;
+    }
+    __vamos_bg_list_node * cur=stream->memberships;
+    do
+    {
+        if(cur->update_next==0)
+        {
+            if(cur->group->updated==0)
+            {
+                cur->update_next=cur;
+                cur->update_prev=cur;
+                cur->group->updated=cur;
+            }
+            else
+            {
+                cur->update_next=cur->group->updated;
+                cur->update_prev=cur->group->updated->prev;
+                cur->update_next->update_prev=cur;
+                cur->update_prev->update_next=cur;
+            }
+        }
+        cur=cur->member_next;
+    } while (cur!=stream->memberships);
+}
+
+int __vamos_advance_permutation_forward(__vamos_bg_list_node** nodes, int permsize, __vamos_bg_list_node* first)
+{
+    __vamos_bg_list_node** lsn=nodes+(permsize-1);
+    __vamos_bg_list_node** pos=lsn;
     while(pos>=nodes)
     {
         incstart:
@@ -223,18 +322,18 @@ int __vamos_advance_permutation_forward(dll_node** nodes, int permsize, dll_node
             pos--;
             continue;
         }
-        for(dll_node** x=nodes;x<pos;x++)
+        for(__vamos_bg_list_node** x=nodes;x<pos;x++)
         {
             if((*pos)==*x)
             {
                 goto incstart;
             }
         }
-        for(dll_node** x=pos+1;x<=lsn;x++)
+        for(__vamos_bg_list_node** x=pos+1;x<=lsn;x++)
         {
             *x=first;
             inner_incstart:
-            for(dll_node** y=nodes;y<x;y++)
+            for(__vamos_bg_list_node** y=nodes;y<x;y++)
             {
                 if((*x)==(*y))
                 {
@@ -247,10 +346,10 @@ int __vamos_advance_permutation_forward(dll_node** nodes, int permsize, dll_node
     }
     return 0;
 }
-int __vamos_advance_permutation_backward(dll_node** nodes, int permsize, dll_node* last)
+int __vamos_advance_permutation_backward(__vamos_bg_list_node** nodes, int permsize, __vamos_bg_list_node* last)
 {
-    dll_node** lsn=nodes+(permsize-1);
-    dll_node** pos=lsn;
+    __vamos_bg_list_node** lsn=nodes+(permsize-1);
+    __vamos_bg_list_node** pos=lsn;
     while(pos>=nodes)
     {
         incstart:
@@ -260,18 +359,18 @@ int __vamos_advance_permutation_backward(dll_node** nodes, int permsize, dll_nod
             pos--;
             continue;
         }
-        for(dll_node** x=nodes;x<pos;x++)
+        for(__vamos_bg_list_node** x=nodes;x<pos;x++)
         {
             if((*pos)==*x)
             {
                 goto incstart;
             }
         }
-        for(dll_node** x=pos+1;x<=lsn;x++)
+        for(__vamos_bg_list_node** x=pos+1;x<=lsn;x++)
         {
             *x=last;
             inner_incstart:
-            for(dll_node** y=nodes;y<x;y++)
+            for(__vamos_bg_list_node** y=nodes;y<x;y++)
             {
                 if((*x)==(*y))
                 {
@@ -294,41 +393,3 @@ size_t __vamos_request_from_buffer(__vamos_streaminfo * stream, size_t count, ui
     }
     return stream->available;
 }
-
-// int advance_permutation(int* arr, int permsize, int numoptions)
-// {
-//     int* last=arr+(permsize-1);
-//     int* pos=last;
-//     while(pos>=arr)
-//     {
-//         incstart:
-//         (*pos)++;
-//         if((*pos)>=numoptions)
-//         {
-//             pos--;
-//             continue;
-//         }
-//         for(int* x=arr;x<pos;x++)
-//         {
-//             if((*pos)==*x)
-//             {
-//                 goto incstart;
-//             }
-//         }
-//         for(int* x=pos+1;x<=last;x++)
-//         {
-//             *x=0;
-//             inner_incstart:
-//             for(int* y=arr;y<x;y++)
-//             {
-//                 if((*x)==(*y))
-//                 {
-//                     (*x)++;
-//                     goto inner_incstart;
-//                 }
-//             }
-//         }
-//         return 1;
-//     }
-//     return 0;
-// }

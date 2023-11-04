@@ -3,6 +3,7 @@ from type_checker import *
 from utils import *
 from parser_indices import *
 from vamos import *
+import sys
 
 precedence = (
     ('left', 'AND', 'OR'),
@@ -131,6 +132,12 @@ def p_creates_spec(p):
     else:
         p[0]=None
 
+def p_id(p):
+    """
+    id : ID
+    """
+    p[0] = VamosID(p[1], posInfoFromParser(p))
+
 def p_list(p):
     """
     list_field_decl : empty
@@ -155,8 +162,8 @@ def p_list(p):
 
 def p_nelist(p):
     """
-    ne_id_list : ID
-               | ID ',' ne_id_list
+    ne_id_list : id
+               | id ',' ne_id_list
     ne_list_field_decl : field_decl
                        | field_decl ',' ne_list_field_decl
     ne_list_aggregate_field_decl : ne_list_aggregate_field_decl
@@ -223,7 +230,7 @@ def p_stream_processor(p):
     """
     stream_processor : STREAM PROCESSOR ID stream_fields ':' ID opt_expression_list ARROW ID opt_expression_list processor_extends_spec '{' processor_rule_list custom_hole '}'
     """
-    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], ParameterizedRef(StreamTypeRef(p[6], posInfoFromParserItem(p,6)), p[7], posInfoFromParserItem(p,6).Combine(posInfoFromParserItem(p,7), True)), ParameterizedRef(StreamTypeRef(p[9], posInfoFromParserItem(p,9)), p[10], posInfoFromParserItem(p,9).Combine(posInfoFromParserItem(p,10), True)), p[11], p[13], [14])
+    p[0]=StreamProcessor(p[3], posInfoFromParser(p), p[4], ParameterizedRef(StreamTypeRef(p[6], posInfoFromParserItem(p,6)), p[7], posInfoFromParserItem(p,6).Combine(posInfoFromParserItem(p,7), True)), ParameterizedRef(StreamTypeRef(p[9], posInfoFromParserItem(p,9)), p[10], posInfoFromParserItem(p,9).Combine(posInfoFromParserItem(p,10), True)), p[11], p[13], p[14])
 
 def p_processor_extends_spec(p):
     """
@@ -273,13 +280,13 @@ def p_agg_arg_id(p):
     """
     agg_arg : ID
     """
-    p[0] = EventReference(p[1], posInfoFromParser(p))
+    p[0] = AggEventAccess(posInfoFromParser(p), EventReference(p[1], posInfoFromParser(p)))
 
 def p_agg_arg_field(p):
     """
-    agg_arg : FIELD_ACCESS
+    agg_arg : id '.' id
     """
-    p[0] = AggFieldAccess(p[1], posInfoFromParser(p))
+    p[0] = AggFieldAccess(p[3], posInfoFromParser(p), p[1])
 
 def p_processor_rule(p):
     """
@@ -321,7 +328,7 @@ def p_include_spec(p):
     if(len(p)==2):
         p[0]=[]
     else:
-        p[0]=p[3]
+        p[0]=[id.toBufGroupRef() for id in p[3]]
 
 
 def p_performance_action_if(p):
@@ -513,7 +520,7 @@ def p_bufgroup_include_all(p):
     
 def p_bufgroup_include_idx(p):
     """
-    bg_include : evsourceref
+    bg_include : ID '[' INT ']'
     """
     p[0] = BGroupIncludeIndex(posInfoFromParser(p), EventSourceRef(p[1], posInfoFromParserItem(p,1)), p[3])
 
@@ -902,28 +909,16 @@ def p_expression_parens(p):
 
 def p_field_access(p):
     """
-    FIELD_ACCESS : ID '.' ID
-                 | ID '[' INT ']' '.' ID
+    FIELD_ACCESS : evsourceref '.' id
     """
-
-    stream = p[1]
-    index = None
-    field = None
-    if len(p) > 4:
-        assert len(p) == 7
-        index = p[3]
-        field = p[6]
-    else:
-        assert len(p) == 4
-        field = p[3]
-    p[0] = ("field_access", stream, index, field)
+    p[0] = FieldAccess(posInfoFromParser(p), p[1], p[3])
 
 
 def p_error(p):
     if p is None:
-        print(f"Syntax error, no additional information :(", file=stderr)
+        print(f"Syntax error, no additional information :(", file=sys.stderr)
     else:
-        print(f"Syntax error at line {p.lineno} (value={p.value}, token={p.type}) .. {p}", file=stderr)
+        print(f"Syntax error at line {p.lineno} (value={p.value}, token={p.type}) .. {p}", file=sys.stderr)
 
 def p_c_rawcode(p):
     """
