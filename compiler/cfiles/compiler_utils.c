@@ -168,7 +168,7 @@ bool __vamos_bg_adjust_pos(__vamos_buffer_group *bg, __vamos_bg_list_node * node
         {
             curcomp=curcomp->prev;
         }
-        if(order(node, curcomp)<0)
+        if(bg->order(bg, node, curcomp)<0)
         {
             swap=true;
             if(curcomp==bg->head)
@@ -206,7 +206,7 @@ bool __vamos_bg_adjust_pos(__vamos_buffer_group *bg, __vamos_bg_list_node * node
             {
                 break;
             }
-            if(order(curcomp, node)<0)
+            if(bg->order(bg, curcomp, node)<0)
             {
                 node->prev->next=node->next;
                 node->next->prev=node->prev;

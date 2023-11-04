@@ -1,6 +1,8 @@
 #include "vamos-buffers/core/arbiter.h"
+#include "vamos-buffers/core/monitor.h"
 #include <inttypes.h>
 #include <stdatomic.h>
+#include <threads.h>
 //#include "gen/mmlib.h"
 
 typedef struct ___vamos_streaminfo __vamos_streaminfo;
@@ -55,6 +57,8 @@ void __vamos_stream_mark_for_update(__vamos_streaminfo * stream);
 void __vamos_bg_insert(__vamos_buffer_group *bg, __vamos_streaminfo *stream);
 bool __vamos_bg_add(__vamos_buffer_group *bg, __vamos_streaminfo *stream);
 bool __vamos_bg_remove(__vamos_buffer_group *bg, __vamos_streaminfo *stream);
+bool __vamos_bg_adjust_pos(__vamos_buffer_group *bg, __vamos_bg_list_node * node);
+bool __vamos_bg_insert_node(__vamos_buffer_group *bg, __vamos_bg_list_node * node);
 
 void __vamos_bg_process_inserts(__vamos_buffer_group *bg);
 void __vamos_bg_process_updates(__vamos_buffer_group *bg);

@@ -190,8 +190,8 @@ class VamosSpec:
         self.matchFuns={}
         self.bufferGroups={}
         self.eventSources={}
-        self.streamTypes[""]=StreamType("", LibCodeSpan(), [], None, [], [], [])
-        self.streamProcessors["FORWARD"]=StreamProcessor("FORWARD", LibCodeSpan(), [], ParameterizedRef(StreamTypeRef("", LibCodeSpan()), [], LibCodeSpan()), ParameterizedRef(StreamTypeRef("", LibCodeSpan()), [], LibCodeSpan()), None, [], None)
+        #self.streamTypes[""]=StreamType("", LibCodeSpan(), [], None, [], [], [])
+        #self.streamProcessors["FORWARD"]=StreamProcessor("FORWARD", LibCodeSpan(), [], ParameterizedRef(StreamTypeRef("", LibCodeSpan()), [], LibCodeSpan()), ParameterizedRef(StreamTypeRef("", LibCodeSpan()), [], LibCodeSpan()), None, [], None)
         for component in self.components:
             component.Register(self)
 
@@ -245,7 +245,7 @@ class VamosSpec:
             ret+=f"#include {mprt}\n"
 
         ret+=f"""
-
+#include <threads.h>
 #define __vamos_min(a, b) ((a < b) ? (a) : (b))
 #define __vamos_max(a, b) ((a > b) ? (a) : (b))
 
@@ -277,7 +277,7 @@ struct _EVENT_hole_wrapper {"{"}
 
 static void init_hole_hole(vms_event *hev) {"{"}
     struct _EVENT_hole_wrapper *h = (struct _EVENT_hole_wrapper *) hev;
-    h->head.kind = vms_get_hole_kind();
+    h->head.kind = vms_event_get_hole_kind();
     h->cases.hole.n = 0;
 {"}"}
 
@@ -363,6 +363,7 @@ static void update_hole_hole(vms_event *hev, vms_event *ev) {"{"}
 
 class ParameterizedRef(ASTNode):
     def __init__(self, ref, args, posInfo):
+        self.name=ref.name
         self.ref=ref
         self.args=args
         super().__init__(posInfo)
@@ -434,6 +435,8 @@ class FieldDecl(ASTNode):
         return self.name
     def toPrefixedCCode(self, prefix):
         return f"{self.type.toCCode()} {prefix}{self.name}"
+    def toSubstitutedCCode(self, newname):
+        return f"{self.type.toCCode()} {newname}"
 
     
 class AggFieldDecl(ASTNode):
@@ -501,8 +504,8 @@ class Event(ASTNode):
 struct _{self.toStructName()};
 struct _{self.toFieldStructName()};
 typedef struct _{self.toStructName()} {self.toStructName()};
-typedef struct _{self.toFieldStructName()} {self.toFieldStructName()};
 """
+#typedef struct _{self.toFieldStructName()} {self.toFieldStructName()};
     
     def toCDef(self):
         fields=";\n    ".join([fld.toCCode() for fld in sorted(self.fields.values(),key=lambda field: field.index)])
@@ -513,11 +516,12 @@ struct _{self.toStructName()}
 {"{"}
     {fields}
 {"};"}
-struct _{self.toFieldStructName()}
-{"{"}
-    {self.streamtype.toSharedFieldDef()}{self.toFieldStructName()} fields;
-{"};"}
 """
+# struct _{self.toFieldStructName()}
+# {"{"}
+#     {self.streamtype.toSharedFieldDef()}{self.toFieldStructName()} fields;
+# {"};"}
+
     def getField(self, fieldname):
         if fieldname in self.fields:
             return self.fields[fieldname]
@@ -706,10 +710,10 @@ class StreamType(ASTNode):
             return self.supertype.target.sharedFields()
         return dict([[fld.name,fld] for fld in self.sharedflds])
     
-    def toSharedFieldDef(self):
-        if self.supertype is not None:
-            return self.supertype.target.toSharedFieldDef()
-        return ""
+    # def toSharedFieldDef(self):
+    #     if self.supertype is not None:
+    #         return self.supertype.target.toSharedFieldDef()
+    #     return ""
     
     def getStreamField(self, fieldname):
         if fieldname in self.fields:
@@ -796,6 +800,12 @@ class CustomHole(ASTNode):
                 part.check(streamproc, env)
         else:
             registerError(VamosError([self.pos], f"Stream Type \"{streamproc.tostream.target.name}\" does not contain an event named \"{self.name}\""))
+    def toCPreDecls(self, streamproc, env):
+        ret=""
+        ret+="void __vamos_inithole_"+streamproc.name+"(vms_event * holeev);\n"
+        ret+="void __vamos_updatehole_"+streamproc.name+"(vms_event * holeev, vms_event * newev);\n"
+        return ret
+
     def toCCode(self, streamproc, env):
         ret=""
         ret+="void __vamos_inithole_"+streamproc.name+"(vms_event * holeev)\n{\n"
@@ -844,7 +854,7 @@ class StreamProcessor(ASTNode):
             return True
         self.fromstream.resolve(spec)
         self.tostream.resolve(spec)
-        if self.extends is not None:
+        if self.extends is not None and self.extends.name != "FORWARD":
             self.extends.resolve(spec)
             if not self.extends.target.initializeMembers(spec, seen+[self]):
                 return False
@@ -867,11 +877,11 @@ class StreamProcessor(ASTNode):
         return f"__vamos_perf_createsp_{self.name}"
 
     def toCPreDecls(self, spec):
-        ret = f"""
-void {self.toInitFunName()}({', '.join([self.tostream.target.toStreamFieldStructName()+" * nstream"]+[fld.toCCode() for fld in self.params])});
-int {self.toFilterFunName()}();
-int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
-"""
+        ret = f"void {self.toInitFunName()}({', '.join([self.tostream.target.toStreamFieldStructName()+' * nstream']+[fld.toCCode() for fld in self.params])});\n"
+        ret+=f"int {self.toFilterFunName()}();\n"
+        ret+=f"int {self.toThreadFunName()}(void * buffer);\n"
+        if self.customHole is not None:
+            ret+=self.customHole.toCPreDecls(self, Environment(spec))
         return ret
 
     def toCCode(self, spec):
@@ -899,7 +909,8 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
         ret+="return true;\n"
         ret+="}\n"
         ret+="}\n"
-        ret+="int "+self.toThreadFunName()+"("+self.tostream.target.toStreamFieldStructName()+" * __vamos_source)\n{\n"
+        ret+="int "+self.toThreadFunName()+"(void * ___vamos_source)\n{\n"
+        ret+=self.tostream.target.toStreamFieldStructName()+" * __vamos_source = ("+self.tostream.target.toStreamFieldStructName()+" *)___vamos_source;\n"
         ret+="vms_stream *stream = (vms_stream *)__vamos_source;\n"
         ret+="vms_arbiter_buffer *buffer = __vamos_source->__info.buffer;\n"
         ret+=self.fromstream.target.toEventStructName()+" *__vamos_inevent;\n"
@@ -909,7 +920,7 @@ int {self.toThreadFunName()}(__vamos_arbiter_buffer *buffer);
         ret+="sleep_ns(10);\n"
         ret+="}\n"
         ret+="while(true)\n{\n"
-        ret+="__vamos_inevent = vms_stream_filter_fetch(stream, buffer, &"+self.toFilterFunName()+");\n"
+        ret+="__vamos_inevent = stream_filter_fetch(stream, buffer, &"+self.toFilterFunName()+");\n"
         ret+="if (__vamos_inevent == NULL)\n{\n"
         ret+="// no more events\n"
         ret+="break;\n"
@@ -979,7 +990,7 @@ class AggFunction(ASTNode):
             ret+=target+f" = (({type})-1<({type})0)?sizeof({type})==sizeof(long long)?LLONG_MIN:sizeof({type})==sizeof(long)?LONG_MIN:sizeof({type})==sizeof(int)?INT_MIN:sizeof({type})==sizeof(short)?SHRT_MIN:sizeof({type})==sizeof(signed char)?SCHAR_MIN:0:0;\n"
         if self.name=="MIN":
             ret+=target+f" = (({type})-1<({type})0)?sizeof({type})==sizeof(long long)?LLONG_MAX:sizeof({type})==sizeof(long)?LONG_MAX:sizeof({type})==sizeof(int)?INT_MAX:sizeof({type})==sizeof(short)?SHRT_MAX:sizeof({type})==sizeof(signed char)?SCHAR_MAX:0:"
-            ret+=f"sizeof({type})==sizeof(unsigned long long)?ULLONG_MAX:sizeof({type})==sizeof(unsigned long)?ULONG_MAX:sizeof({type})==sizeof(unsigned int)?UINT_MAX:sizeof({type})==sizeof(unsigned short)?USHRT_MAX:sizeof({type})==sizeof(unsigned char):UCHAR_MAX:0;\n"
+            ret+=f"sizeof({type})==sizeof(unsigned long long)?ULLONG_MAX:sizeof({type})==sizeof(unsigned long)?ULONG_MAX:sizeof({type})==sizeof(unsigned int)?UINT_MAX:sizeof({type})==sizeof(unsigned short)?USHRT_MAX:sizeof({type})==sizeof(unsigned char)?UCHAR_MAX:0;\n"
         if self.name=="COUNT":
             ret+=target+" = 0;\n"
         return ret
@@ -1051,7 +1062,7 @@ class ProcessorRule(ASTNode):
         createscode=""
         if self.createSpec is not None:
             env.createsEvent=self.event
-            createscode=self.createSpec.toCCode(env)
+            createscode=self.createSpec.toCCode(env, self.params)
             createsdata=(self.params,self.createSpec.funname)
         filtercode=f"if(__vamos_inevent->head.kind == {self.event.target.toEnumName()})\n{'{'}\n"
         matchassigns=self.event.target.generateMatchAssignments(env, "__vamos_inevent", self.params, "")
@@ -1077,14 +1088,14 @@ class CreatesSpec(ASTNode):
         self.streaminit.check(self.inputtype, env)
         for incl in self.includein:
             incl.resolve(env)
-    def toCCode(self, env):
+    def toCCode(self, env, params):
         env=Environment(env)
         ret=""
         if self.limit >= 0:
             self.limitvar = varid("createslimit")
             ret+="static uint64_t "+self.limitvar+" = 0;"
         self.funname = funid("createsspec")
-        ret+="void "+self.funname+"("+", ".join(["vms_stream * stream"]+[fld.toCCode() for fld in env.getCreatesEvent().target.allFields()])+")\n{\n"
+        ret+="void "+self.funname+"("+", ".join(["vms_stream * stream"]+[fld.toSubstitutedCCode(param) for fld,param in zip(env.getCreatesEvent().target.allFields(),params)])+")\n{\n"
         if(self.limit >= 0):
             ret+="if("+self.limitvar+" >= "+str(self.limit)+")\n{\n"
             ret+="return;\n"
@@ -1096,14 +1107,14 @@ class CreatesSpec(ASTNode):
         strmtype = self.streaminit.streamtype
         ret+=strmtype.target.toStreamFieldStructName()+" * nstream = ("+strmtype.target.toStreamFieldStructName()+"*)malloc(sizeof("+strmtype.target.toStreamFieldStructName()+")+sizeof("+strmtype.target.toAggFieldStructName()+")+sizeof(intptr_t));\n"
         ret+="if(nstream == 0)\n{\n"
-        ret+='printf("Could not allocate data for newly created stream!\n");\n'
+        ret+='printf("Could not allocate data for newly created stream!\\n");\n'
         ret+="abort();\n"
         ret+="}\n"
 
         ret+=self.streaminit.toHoleHandlingDef(env)
         ret+="nstream->__info.stream = vms_stream_create_substream(stream, NULL, NULL, NULL, NULL, "+self.streaminit.toHoleHandlingRef()+");\n"
         ret+="if (!nstream->__info.stream)\n{\n"
-        ret+="fprintf(stderr, \"Failed creating substream for \\\""+env.getCreatesEvent().name+"\\\"\n\");\n"
+        ret+='fprintf(stderr, \"Failed creating substream for \\\"'+env.getCreatesEvent().name+'\\\"\\n\");\n'
         ret+="abort();\n"
         ret+="}\n"
 
@@ -1114,7 +1125,7 @@ class CreatesSpec(ASTNode):
         for incl in self.includein:
             ret+=incl.target.generateAddCode("nstream")
         ret+="vms_arbiter_buffer_set_active(nstream->__info.buffer, true);\n"
-        ret+=f"thrd_start(&(((__vamos_streaminfo *)nstream)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)nstream);\n"
+        ret+=f"thrd_create(&(((__vamos_streaminfo *)nstream)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)nstream);\n"
 
         ret+="}\n"
         return normalizeGeneratedCCode(ret, 0)
@@ -1305,7 +1316,7 @@ class EventSource(ASTNode):
                 for incl in bg.includes:
                     ret+=incl.generateIncludeCode(bg, self, "__vamos_evsdata", "__vamos_index")
         ret+="vms_arbiter_buffer_set_active(__vamos_evsdata->buffer, true);\n"
-        ret+=f"thrd_start(&(((__vamos_streaminfo *)__vamos_evsdata)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)__vamos_evsdata);\n"
+        ret+=f"thrd_create(&(((__vamos_streaminfo *)__vamos_evsdata)->thread), {self.streaminit.toThreadFunName()}, (vms_stream *)__vamos_evsdata);\n"
         ret+="}\n"
         return normalizeGeneratedCCode(ret, 0)
     def toCInitCode(self, spec, strbufname):
