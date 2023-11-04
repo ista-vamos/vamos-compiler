@@ -10,6 +10,7 @@ typedef struct ___vamos_bg_list_node __vamos_bg_list_node;
 typedef struct ___vamos_buffer_group __vamos_buffer_group;
 
 struct ___vamos_bg_list_node {
+    __vamos_streaminfo * stream;
     __vamos_bg_list_node *next;
     __vamos_bg_list_node *prev;
     __vamos_bg_list_node *update_next;
@@ -18,7 +19,6 @@ struct ___vamos_bg_list_node {
     __vamos_bg_list_node *member_prev;
     __vamos_bg_list_node * volatile insert_next;
     __vamos_buffer_group *group;
-    __vamos_streaminfo * stream;
     uint64_t id;
 };
 

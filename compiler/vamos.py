@@ -578,6 +578,7 @@ class StreamType(ASTNode):
     def initializeMembers(self, spec, seen):
         self.events={}
         self.fields={}
+        self.aggregateFields={}
         if self.initializedMembers:
             return True
         for event in self.evs:
@@ -597,6 +598,8 @@ class StreamType(ASTNode):
             if not sharedmatch:
                 registerError(VamosError([self.supertype.pos], f"Supertype must have same shared fields as subtype for Stream Type \"{self.name}\""))
                 self.supertype = None
+        for fld in self.aggfields:
+            self.aggregateFields[fld.name]=fld
         # for ev in self.evs:
         #     ev.flds = self.sharedflds + ev.flds
         index=0
@@ -629,6 +632,11 @@ class StreamType(ASTNode):
 
     def toEnumName(self):
         return f"{self.name}_kinds"
+
+    def getAggField(self, name):
+        if name in self.aggregateFields:
+            return self.aggregateFields[name]
+        return None
 
     def toEnumDef(self):
         ret=f"enum {self.toEnumName()}\n{'{'}\n"
@@ -1641,21 +1649,73 @@ class SharedElemOrder(ASTNode):
         self.aggexp=aggexp
         self.missingspec=missingspec
         super().__init__(posInfo)
+    def initialize(self, streamtype, env):
+        self.aggexp.check(env, lambda name : streamtype.getSharedField(name))
+        self.missingspec.check(env, lambda name : streamtype.getAggField(name))
+        if(str(self.aggexp.type)=="%num" or str(self.missingspec.type)=="%num" or str(self.aggexp.type)==str(self.missingspec.type)):
+            if(str(self.aggexp.type)=="%num"):
+                self.type=self.missingspec.type
+            else:
+                self.type=self.aggexp.type
+        else:
+            registerError(VamosError([self.pos], "Type mismatch between: \""+str(self.left.type)+"\" and \""+str(self.right.type)+"\""))
+            self.type="%num"
+    def toCCode(self, env):
+        var1=varid("val1")
+        var2=varid("val2")
+        ret=""
+        tp=self.type
+        if(tp=="%num"):
+            tp="int64_t"
+        ret+=tp+" "+var1+";\n"
+        ret+=tp+" "+var2+";\n"
+        ret+="__vamos_request_from_buffer(stream1->stream, 1, __vamos_roundid);\n"
+        ret+="__vamos_request_from_buffer(stream2->stream, 1, __vamos_roundid);\n"
+        ret+="if(stream1->stream->available >= 1)\n{\n"
+        ret+=self.aggexp.toCompareCode(var1)
+        ret+="}\nelse\n{\n"
+        ret+=self.missingspec.toCompareCode(var1)
+        ret+="}\n"
+        ret+="if(stream2->stream->available >= 1)\n{\n"
+        ret+=self.aggexp.toCompareCode(var2)
+        ret+="}\nelse\n{\n"
+        ret+=self.missingspec.toCompareCode(var2)
+        ret+="}\n"
+        ret+="if("+var1+"!="+var2+")\n{\n"
+        ret+="if("+var1+" < "+var2+")\n{\n"
+        ret+="return -1;\n"
+        ret+="}\n"
+        ret+="return 1;\n"
+        ret+="}\n"
+        return ret
+        
 
 class AggInt(ASTNode):
     def __init__(self, value, posInfo):
         self.value=value
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.type="%num"
     def toCInitCode(self, type, streamtype, env):
         return str(self.value)
+    def toCompareCode(self, target):
+        return target+" = "+str(self.value)+";\n"
     
 
 class AggID(ASTNode):
     def __init__(self, name, posInfo):
         self.name=name
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.field=fieldlookup(self.name)
+        if self.field is None:
+            registerError(VamosError([self.pos], "Unknown Reference: \""+self.name+"\""))
+        else:
+            self.type=self.field.type
     def toCInitCode(self, type, streamtype, env):
         return "0"
+    def toCompareCode(self, target):
+        return target+" = "+str(self.value)+";\n"
 
 
 class AggFunc(ASTNode):
@@ -1663,6 +1723,9 @@ class AggFunc(ASTNode):
         self.agg=agg
         self.arg=arg
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.arg.check(env, fieldlookup)
+        self.type=self.arg.type
     def toCInitCode(self, type, streamtype, env):
         if(self.agg=="COUNT"):
             return "0"
@@ -1690,6 +1753,8 @@ class AggFunc(ASTNode):
         else:
             print("Unknown Aggregate Function!")
             exit()
+    def toCompareCode(self, target):
+        return ""
 
 class AggBinOp(ASTNode):
     def __init__(self, posInfo, left, op, right):
@@ -1697,29 +1762,61 @@ class AggBinOp(ASTNode):
         self.right=right
         self.op=op
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.left.check(env, fieldlookup)
+        self.right.check(env, fieldlookup)
+        if(str(self.left.type)=="%num" or str(self.right.type)=="%num" or str(self.left.type)==str(self.right.type)):
+            if(str(self.left.type)=="%num"):
+                self.type=self.right.type
+            else:
+                self.type=self.left.type
+        else:
+            registerError(VamosError([self.pos], "Type mismatch between: \""+str(self.left.type)+"\" and \""+str(self.right.type)+"\""))
+            self.type="%num"
     def toCInitCode(self, type, streamtype, env):
         return "("+parenthesize(self.left.toInitCCode(type, streamtype, env))+" "+self.op+" "+parenthesize(self.right.toInitCCode(type, streamtype, env))+")"
+    def toCompareCode(self, target):
+        lvar1=varid("lvar1")
+        lvar2=varid("lvar2")
+        ret=self.left.toCompareCode(lvar1)
+        ret+=self.right.toCompareCode(lvar2)
+        ret+=target+" = "+lvar1+" "+self.op+" "+lvar2+";\n"
+        return ret
 
 class AggUnOp(ASTNode):
     def __init__(self, posInfo, op, arg):
         self.op=op
         self.arg=arg
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.arg.check(env, fieldlookup)
+        self.type=self.arg.type
     def toCInitCode(self, type, streamtype, env):
         return "("+self.op+parenthesize(self.arg.toInitCCode(type, streamtype, env))+")"
+    def toCompareCode(self, target):
+        lvar=varid("lvar")
+        ret=self.arg.toCompareCode(lvar)
+        ret+=target+" = "+self.op+" "+lvar+";\n"
+        return ret
 
 class MissingWait(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        pass
 
 class MissingIgnore(ASTNode):
     def __init__(self, posInfo):
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        pass
 
 class MissingAssume(ASTNode):
     def __init__(self, posInfo, expr):
         self.expr=expr
         super().__init__(posInfo)
+    def check(self, env, fieldlookup):
+        self.expr.check(env, fieldlookup)
 
 class BGroupIncludeAll(ASTNode):
     def __init__(self, posInfo, evsource):
@@ -1882,6 +1979,8 @@ class ArbiterRule(ASTNode):
                 wrap+="}\n"
         wrap+="@WRAP@\n"
         code = self.code.toCCode(env)
+        for updated in env.updated:
+            wrap+="__vamos_stream_mark_for_update(&"+updated.toStreamVar()+"->__info);\n"
         for key in self.drops.keys():
             if(self.drops[key] > 0):
                 wrap+="if(((__vamos_streaminfo *)"+key.toCVar()+")->drop_on_match > 0)\n{\n"
@@ -2075,6 +2174,7 @@ class Monitor(ASTNode):
             ret+=rule.toCCode(spec, indnt, baseindent)
         indnt=baseindent
         ret+=indnt+"}\n"
+        ret+=indnt+"return 0;\n"
         ret+="}\n"
         return ret
 
@@ -2322,6 +2422,7 @@ class CCodeField(CCodeEscape):
         self.field.resolve(self.receiver.target.streamtype)
 
     def toCCodeEscape(self, env):
+        env.registerUpdated(self.receiver)
         return self.receiver.target.toCFieldAccess(env, self.field)
 
 class CCodeContinue(CCodeEscape):
@@ -2338,6 +2439,8 @@ class CCodeSwitchTo(CCodeEscape):
         super().__init__(posInfo, CCodeEmpty(posInfo.StartSpan()), CCodeEmpty(posInfo.EndSpan()))
     def initializeEscape(self, env):
         self.ruleset.resolve(env)
+    def toCCodeEscape(self, env):
+        return "__vamos_current_arbiter_ruleset = "+self.ruleset.target.toCEnumValue()+";\n"
 
 class CCodeDrop(CCodeEscape):
     def __init__(self, posInfo, amount, source):
@@ -2358,7 +2461,7 @@ class CCodeRemove(CCodeEscape):
         self.source.resolve(env)
         self.group.resolve(env)
     def toCCodeEscape(self, env):
-        return ""
+        return "__vamos_bg_remove(&"+self.group.target.toCVariable()+", &"+self.source.toStreamVar()+"->__info);\n"
 
 class CCodeAdd(CCodeEscape):
     def __init__(self, posInfo, source, group):
@@ -2369,7 +2472,7 @@ class CCodeAdd(CCodeEscape):
         self.source.resolve(env)
         self.group.resolve(env)
     def toCCodeEscape(self, env):
-        return ""
+        return "__vamos_bg_add(&"+self.group.target.toCVariable()+", &"+self.source.toStreamVar()+"->info);\n"
 
 class CCodeYield(CCodeEscape):
     def __init__(self, posInfo, ev, args):
@@ -2511,6 +2614,7 @@ class Environment:
         self.parent=parent
         self.eventSourceVars={}
         self.createsEvent=None
+        self.updated=[]
 
     def addEventSourceVar(self, depth, group, var, newvarid):
         self.eventSourceVars[str(var)]=EventSourceVar(str(var), group.target.streamtype, newvarid)
@@ -2533,6 +2637,11 @@ class Environment:
     
     def getArbiterStreamType(self):
         return self.parent.getArbiterStreamType()
+
+    def registerUpdated(self, streamvar):
+        if streamvar.toStreamVar() in [upd.toStreamVar() for upd in self.updated]:
+            return
+        self.updated.append(streamvar)
 
     def checkBufferIsDone(self, buffer):
         return "(((__vamos_streaminfo *)"+buffer.toStreamVar()+")->status == -1)"
