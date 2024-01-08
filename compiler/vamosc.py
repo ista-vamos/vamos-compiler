@@ -129,7 +129,7 @@ if(args.print_tokens):
     l.reset()
 if(args.skip_default_actions and not args.print_ast):
     sys.exit(0)
-ast = parse_program(l.tokens, lexer, file)
+ast = parse_program(file, l)
 if(args.print_ast):
     print(json.dumps(ast,cls=MyEncoder))
 if(args.skip_default_actions):

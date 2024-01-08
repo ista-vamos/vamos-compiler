@@ -49,6 +49,7 @@ def p_component(p):
               | stream_processor
               | buff_group_def
               | match_fun_def
+              | arbiter_fun_def
     """
     p[0] = p[1]
 
@@ -166,8 +167,8 @@ def p_nelist(p):
                | id ',' ne_id_list
     ne_list_field_decl : field_decl
                        | field_decl ',' ne_list_field_decl
-    ne_list_aggregate_field_decl : ne_list_aggregate_field_decl
-                       | aggregate_field_decl ',' ne_list_field_decl
+    ne_list_aggregate_field_decl : aggregate_field_decl
+                                 | aggregate_field_decl ',' ne_list_aggregate_field_decl
     event_list : event_decl ';'
                | event_decl ';' event_list
     ne_expression_list : expression
@@ -183,8 +184,8 @@ def p_nelist(p):
                        | order_expr ',' ne_order_expr_list
     ne_bg_includes_list : bg_include
                         | bg_include ',' ne_bg_includes_list
-    ne_c_expr_list : c_exprs
-                   | c_exprs CCODE_COMMA ne_c_expr_list
+    ne_c_expr_list : ne_c_expr
+                   | ne_c_expr CCODE_COMMA ne_c_expr_list
     ne_id_or_int_list : id_or_int
                       | id_or_int ',' ne_id_or_int_list
     """
@@ -540,6 +541,11 @@ def p_match_fun_def(p):
     """
     p[0] = MatchFun(p[3], posInfoFromParser(p), p[4], p[5], p[7])
 
+def p_arbiter_fun_def(p):
+    """
+    arbiter_fun_def : FUN ID opt_bracket_id_list stream_fields ':' type BEGIN_CCODE c_arb_stmts CCODE_end
+    """
+    p[0] = ArbiterFun(p[2], posInfoFromParser(p), p[3], p[4], p[6], p[8])
 
 # END advanced features
 
@@ -753,6 +759,12 @@ def p_ev_match(p):
     """
     p[0]=MatchPatternEvent(posInfoFromParser(p), EventReference(p[1], posInfoFromParserItem(p,1)), p[3])
 
+def p_ev_match_hole(p):
+    """
+    ev_match : HOLE '(' id_list ')'
+    """
+    p[0]=MatchPatternEvent(posInfoFromParser(p), EventReference(p[1], posInfoFromParserItem(p,1)), p[3])
+
 def p_ev_match_shared(p):
     """
     ev_match : SHARED '(' id_list ')'
@@ -891,9 +903,9 @@ def p_expression_unop(p):
 
 def p_expression_ccode(p):
     """
-    expression : c_codes
+    expression : c_code c_codes
     """
-    p[0] = p[1]
+    p[0] = p[1].merge(p[2], True)
 
 def p_expression_fieldacc(p):
     """
@@ -937,6 +949,12 @@ def p_c_rawcode(p):
     else:
         p[0]=p[2].mergeCode(CCode(posInfoFromParserItem(p,1), p[1]), False).mergeCode(CCode(posInfoFromParserItem(p,3),p[3]), True)
 
+def p_ne_c_expr(p):
+    """
+    ne_c_expr : c_expr c_exprs
+    """
+    p[0] = p[1].merge(p[2], True)
+
 def p_c_rawcodes_empty(p):
     """
     c_exprs : empty
@@ -960,11 +978,24 @@ def p_c_field(p):
     """
     p[0]=CCodeField(posInfoFromParser(p), EventSourceIndexedRef(p[1][0], posInfoFromParserItem(p,1), p[1][1]), StreamFieldRef(p[1][2], posInfoFromParserItem(p,1)))
 
+def p_c_sourceref(p):
+    """
+    c_expr : CCODE_SOURCEREF
+    c_arb_stmt : CCODE_SOURCEREF
+    """
+    p[0]=CCodeSourceRef(posInfoFromParser(p), EventSourceIndexedRef(p[1][0], posInfoFromParserItem(p,1), p[1][1]))
+
 def p_c_astmt_yield(p):
     """
     c_arb_stmt : CCODE_YIELD c_expr_list CCODE_CPAREN CCODE_SEMICOLON
     """
     p[0]=CCodeYield(posInfoFromParser(p), EventReference(p[1], posInfoFromParserItem(p,1)), p[2])
+
+def p_c_astmt_call(p):
+    """
+    c_arb_stmt : CCODE_CALL c_expr_list CCODE_CPAREN CCODE_SEMICOLON
+    """
+    p[0]=CCodeCall(posInfoFromParser(p), ArbiterFunRef(p[1], posInfoFromParserItem(p,1)), p[2])
     
 def p_c_astmt_continue(p):
     """
@@ -1003,9 +1034,10 @@ def p_c_astmt_add(p):
 
 
 # public interface
-def parse_program(tokens, lexer, s: str):
-    parser = yacc(debug=None)
+def parse_program(s: str, lexer):
+    tokens=lexer.tokens
+    parser = yacc(debug=True)
 
     # Parse an expression
-    ast = parser.parse(s, lexer=lexer, tracking=True)
+    ast = parser.parse(s, lexer=lexer.build(), tracking=True)
     return ast

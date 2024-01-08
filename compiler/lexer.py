@@ -116,6 +116,14 @@ class MyLexer(object):
         t.type="CCODE_YIELD"
         t.value=t.lexer.lexmatch.group("evid")
         return t
+
+    def t_CCODE_escape_call(self, t):
+        r'\$call[\t ]+(?P<funid>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*\('
+        self.parenstack = (self.parenlevel, self.parenstack)
+        self.parenlevel+=1
+        t.type="CCODE_CALL"
+        t.value=t.lexer.lexmatch.group("funid")
+        return t
     
     def t_CCODE_escape_switchto(self, t):
         r'\$switch[\t ]+to[\t ]+(?P<rsid>[a-zA-Z_][a-zA-Z_0-9]*)[\t ];'
@@ -129,7 +137,7 @@ class MyLexer(object):
         return t
     
     def t_CCODE_escape_drop(self, t):
-        r'\$drop[\t ]+(?P<amnt>[1-9][0-9]*)[\t ]+from[\t ]+(?P<esid1>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx1>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]*;'
+        r'\$drop[\t ]+(?P<amnt>[1-9][0-9]*)[\t ]+from[\t ]+(?P<esid1>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx1>([0]|([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]*;'
         t.type="CCODE_DROP"
         idx=t.lexer.lexmatch.group("idx1")
         if(idx==None):
@@ -138,7 +146,7 @@ class MyLexer(object):
         return t
     
     def t_CCODE_escape_remove(self, t):
-        r'\$remove[\t ]+(?P<esid2>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx2>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+from[\t ]+(?P<bgid1>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
+        r'\$remove[\t ]+(?P<esid2>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx2>([0]|([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+from[\t ]+(?P<bgid1>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
         t.type="CCODE_REMOVE"
         idx=t.lexer.lexmatch.group("idx2")
         if(idx==None):
@@ -147,7 +155,7 @@ class MyLexer(object):
         return t
     
     def t_CCODE_escape_add(self, t):
-        r'\$add[\t ]+(?P<esid3>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx3>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+to[\t ]+(?P<bgid2>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
+        r'\$add[\t ]+(?P<esid3>[a-zA-Z_][a-zA-Z_0-9]*)[\t ]*(\[[\t ]*(?P<idx3>([0]|([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?[\t ]+to[\t ]+(?P<bgid2>[a-zA-Z_][a-zA-Z0-9_]*)[\t ]*;'
         t.type="CCODE_ADD"
         idx=t.lexer.lexmatch.group("idx3")
         if(idx==None):
@@ -156,12 +164,21 @@ class MyLexer(object):
         return t
     
     def t_CCODE_escape_field(self, t):
-        r'\$(?P<esid4>[a-zA-Z_][a-zA-Z_0-9]*)(\[[\t ]*(?P<idx4>(([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?\.(?P<fname>[a-zA-Z_][a-zA-Z0-9_]*);'
+        r'\$(?P<esid4>[a-zA-Z_][a-zA-Z_0-9]*)(\[[\t ]*(?P<idx4>([0]|([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?\.(?P<fname>[a-zA-Z_][a-zA-Z0-9_]*);'
         t.type="CCODE_FIELD"
         idx=t.lexer.lexmatch.group("idx4")
         if(idx==None):
             idx="0"
         t.value=(t.lexer.lexmatch.group("esid4"), idx, t.lexer.lexmatch.group("fname"))
+        return t
+
+    def t_CCODE_escape_sourceref(self, t):
+        r'\$(?P<esid4>[a-zA-Z_][a-zA-Z_0-9]*)(\[[\t ]*(?P<idx4>([0]|([1-9][0-9]*)|([a-zA-Z_][a-zA-Z0-9_]*)))[\t ]*\])?;'
+        t.type="CCODE_SOURCEREF"
+        idx=t.lexer.lexmatch.group("idx4")
+        if(idx==None):
+            idx="0"
+        t.value=(t.lexer.lexmatch.group("esid4"), idx)
         return t
 
 
@@ -389,7 +406,9 @@ class MyLexer(object):
         "CCODE_REMOVE",
         "CCODE_ADD",
         "CCODE_CONTINUE",
-        "CCODE_SWITCHTO"
+        "CCODE_SWITCHTO",
+        "CCODE_CALL",
+        "CCODE_SOURCEREF"
     ] + list(reserved.values())
 
     # Regular expression rules for tokens
