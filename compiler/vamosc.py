@@ -25,6 +25,7 @@ from config import (
     vamos_buffers_LIBRARIES_DIRS_shmbuf,
     vamos_buffers_LIBRARIES_DIRS_streams,
     vamos_buffers_INCLUDE_DIR,
+    vamos_buffers_BUILD_TYPE,
 )
 
 class MyEncoder(JSONEncoder):
@@ -55,7 +56,7 @@ parser.add_argument(
     nargs="*",
 )
 parser.add_argument(
-    "-ll",
+    "-L",
     "--link-lookup",
     help="Lists libraries to be linked against via -l parameters",
     nargs="*",
@@ -226,12 +227,12 @@ if args.legacy_mode is not True:
         '          -I$SHAMON_INCLUDE_DIR/streams -I$SHAMON_INCLUDE_DIR/core -I$SHAMON_INCLUDE_DIR/shmbuf"\n\n'
     )
 
-    if args.debug:
+    if vamos_buffers_BUILD_TYPE == "Debug":
         output_file.write('LTOFLAGS=""\n')
         output_file.write('CFLAGS="-g -O0"\n\n')
     else:
         output_file.write('CFLAGS="-g3 -O3 -fPIC -std=c11 -Wno-parentheses-equality"\n')
-        # output_file.write('LTOFLAGS="-fno-lto -fno-fat-lto-objects"\n')
+        output_file.write('LTOFLAGS="-flto -fno-fat-lto-objects"\n')
         output_file.write('CPPFLAGS="$CPPFLAGS -DNDEBUG"\n\n')
 
     linklibraries = [
